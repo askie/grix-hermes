@@ -1,6 +1,7 @@
 # grix-hermes
 
 `grix-hermes` 是一个独立发布的 Hermes 技能包项目。
+它对外发布到 npm 的包名是 `@dhf-hermes/grix`，安装后的命令仍然是 `grix-hermes`。
 
 它的目标很单一：
 
@@ -20,7 +21,7 @@
 ### 方式 1：npm
 
 ```bash
-npm install -g grix-hermes
+npm install -g @dhf-hermes/grix
 grix-hermes install
 ```
 
@@ -62,8 +63,20 @@ grix-hermes install --dest ~/.hermes/skills/grix-hermes --force
 发布时只需要准备：
 
 1. GitHub 仓库
-2. npm 包名
+2. npm 包名：`@dhf-hermes/grix`
 3. GitHub Secret: `NPM_TOKEN`
+
+仓库里也带了本地发布脚本：
+
+- `./publish.sh`
+- `./scripts/publish_npm.sh`
+
+常用方式：
+
+```bash
+bash ./publish.sh
+bash ./publish.sh --publish
+```
 
 ## 设计边界
 

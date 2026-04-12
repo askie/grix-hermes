@@ -1,5 +1,5 @@
 {
-  "name": "grix-hermes",
+  "name": "@dhf-hermes/grix",
   "version": "0.1.0",
   "description": "Standalone Hermes skill bundle for Grix and OpenClaw workflows.",
   "type": "module",
@@ -27,7 +27,9 @@
     "list": "node ./bin/grix-hermes.mjs list",
     "manifest": "node ./bin/grix-hermes.mjs manifest",
     "install:local": "node ./bin/grix-hermes.mjs install",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "publish:preview": "bash ./publish.sh",
+    "publish:npm": "bash ./publish.sh --publish"
   },
   "keywords": [
     "hermes",
@@ -36,6 +38,9 @@
     "openclaw"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
