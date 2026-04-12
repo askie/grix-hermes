@@ -1,0 +1,7 @@
+interface:
+  display_name: "Grix Query"
+  short_description: "Find Grix contacts, sessions, and messages."
+  default_prompt: "Use $grix-query to find the right Grix session or inspect recent messages."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Grix Register"
+  short_description: "Register Grix and bootstrap the first API agent."
+  default_prompt: "Use $grix-register to register a Grix account and create the first API agent."
+
+policy:
+  allow_implicit_invocation: true

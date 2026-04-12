@@ -1,0 +1,7 @@
+interface:
+  display_name: "Message Send"
+  short_description: "Send Grix messages and card links with Hermes."
+  default_prompt: "Use $message-send to deliver a Grix message or a conversation card with Hermes."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Grix Update"
+  short_description: "Check and apply OpenClaw Grix plugin updates."
+  default_prompt: "Use $grix-update to check and apply the latest Grix plugin update."
+
+policy:
+  allow_implicit_invocation: true

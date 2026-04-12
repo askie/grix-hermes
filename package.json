@@ -1,0 +1,46 @@
+{
+  "name": "grix-hermes",
+  "version": "0.1.0",
+  "description": "Standalone Hermes skill bundle for Grix and OpenClaw workflows.",
+  "type": "module",
+  "bin": {
+    "grix-hermes": "./bin/grix-hermes.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "shared",
+    "grix-admin",
+    "grix-egg",
+    "grix-group",
+    "grix-query",
+    "grix-register",
+    "grix-update",
+    "message-send",
+    "message-unsend",
+    "openclaw-memory-setup",
+    "README.md",
+    "LICENSE",
+    ".gitignore"
+  ],
+  "scripts": {
+    "list": "node ./bin/grix-hermes.mjs list",
+    "manifest": "node ./bin/grix-hermes.mjs manifest",
+    "install:local": "node ./bin/grix-hermes.mjs install",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "keywords": [
+    "hermes",
+    "skills",
+    "grix",
+    "openclaw"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "yaml": "^2.8.1"
+  }
+}

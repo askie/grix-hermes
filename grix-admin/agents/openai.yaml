@@ -1,0 +1,7 @@
+interface:
+  display_name: "Grix Admin"
+  short_description: "Create remote agents and bind local OpenClaw."
+  default_prompt: "Use $grix-admin to create a remote Grix API agent and bind it into OpenClaw."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Message Unsend"
+  short_description: "Silently retract Grix messages through websocket."
+  default_prompt: "Use $message-unsend to silently retract an incorrect Grix message."
+
+policy:
+  allow_implicit_invocation: true
