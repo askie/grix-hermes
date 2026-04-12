@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = "/Volumes/disk1/python/grix-hermes";
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("message-send card helper prints conversation card", () => {
   const result = spawnSync(

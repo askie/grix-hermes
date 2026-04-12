@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = "/Volumes/disk1/python/grix-hermes";
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("grix-egg validate_install_context reports missing fields", () => {
   const result = spawnSync(

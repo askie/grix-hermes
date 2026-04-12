@@ -4,7 +4,10 @@ import path from "node:path";
 import YAML from "yaml";
 
 const DEFAULT_BASE_URL = "https://grix.dhf.pub";
-const DEFAULT_CAPABILITIES = ["session_route", "thread_v1", "inbound_media_v1", "local_action_v1"];
+const DEFAULT_CLIENT = "grix-hermes";
+const DEFAULT_CLIENT_TYPE = "openclaw";
+const DEFAULT_HOST_TYPE = "openclaw";
+const DEFAULT_CAPABILITIES = ["session_route", "thread_v1", "inbound_media_v1", "local_action_v1", "agent_invoke"];
 const DEFAULT_LOCAL_ACTIONS = ["exec_approve", "exec_reject"];
 
 function parseEnvFile(filePath) {
@@ -90,6 +93,16 @@ function mergedEnv(hermesHome) {
   };
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const cleaned = cleanText(value);
+    if (cleaned) {
+      return cleaned;
+    }
+  }
+  return "";
+}
+
 export function resolveRuntimeConfig(overrides = {}) {
   const hermesHome = resolveHermesHome(overrides);
   const env = mergedEnv(hermesHome);
@@ -97,20 +110,35 @@ export function resolveRuntimeConfig(overrides = {}) {
   const grix = resolvePlatformConfig(configYaml);
   const extra = grix?.extra && typeof grix.extra === "object" ? grix.extra : {};
 
-  const endpoint = cleanText(overrides.endpoint)
-    || cleanText(env.GRIX_ENDPOINT)
-    || cleanText(extra.endpoint);
-  const agentId = cleanText(overrides.agentId)
-    || cleanText(env.GRIX_AGENT_ID)
-    || cleanText(extra.agent_id);
-  const apiKey = cleanText(overrides.apiKey)
-    || cleanText(env.GRIX_API_KEY)
-    || cleanText(grix?.api_key)
-    || cleanText(grix?.token);
-  const accountId = cleanText(overrides.accountId)
-    || cleanText(env.GRIX_ACCOUNT_ID)
-    || cleanText(extra.account_id)
-    || "main";
+  const endpoint = firstNonEmpty(
+    overrides.endpoint,
+    env.GRIX_SKILL_ENDPOINT,
+    env.GRIX_ENDPOINT,
+    extra.skill_endpoint,
+    extra.endpoint
+  );
+  const agentId = firstNonEmpty(
+    overrides.agentId,
+    env.GRIX_SKILL_AGENT_ID,
+    env.GRIX_AGENT_ID,
+    extra.skill_agent_id,
+    extra.agent_id
+  );
+  const apiKey = firstNonEmpty(
+    overrides.apiKey,
+    env.GRIX_SKILL_API_KEY,
+    env.GRIX_API_KEY,
+    extra.skill_api_key,
+    grix?.api_key,
+    grix?.token
+  );
+  const accountId = firstNonEmpty(
+    overrides.accountId,
+    env.GRIX_SKILL_ACCOUNT_ID,
+    env.GRIX_ACCOUNT_ID,
+    extra.skill_account_id,
+    extra.account_id
+  ) || "main";
 
   if (!endpoint || !agentId || !apiKey) {
     throw new Error(
@@ -126,14 +154,15 @@ export function resolveRuntimeConfig(overrides = {}) {
       agentId,
       apiKey,
       accountId,
-      client: cleanText(overrides.client) || cleanText(env.GRIX_CLIENT) || cleanText(extra.client) || "grix-hermes",
-      clientType: cleanText(overrides.clientType) || cleanText(env.GRIX_CLIENT_TYPE) || cleanText(extra.client_type) || "hermes",
-      clientVersion: cleanText(overrides.clientVersion) || cleanText(extra.client_version) || "0.1.0",
-      hostType: cleanText(overrides.hostType) || cleanText(extra.host_type) || "hermes",
-      hostVersion: cleanText(overrides.hostVersion) || cleanText(extra.host_version) || undefined,
-      contractVersion: cleanInt(overrides.contractVersion || extra.contract_version, 1),
+      client: cleanText(overrides.client) || cleanText(env.GRIX_CLIENT) || cleanText(extra.client) || DEFAULT_CLIENT,
+      clientType: cleanText(overrides.clientType) || cleanText(env.GRIX_CLIENT_TYPE) || cleanText(extra.client_type) || DEFAULT_CLIENT_TYPE,
+      clientVersion: cleanText(overrides.clientVersion) || cleanText(env.GRIX_CLIENT_VERSION) || cleanText(extra.client_version) || "0.1.0",
+      hostType: cleanText(overrides.hostType) || cleanText(env.GRIX_HOST_TYPE) || cleanText(extra.host_type) || DEFAULT_HOST_TYPE,
+      hostVersion: cleanText(overrides.hostVersion) || cleanText(env.GRIX_HOST_VERSION) || cleanText(extra.host_version) || undefined,
+      contractVersion: cleanInt(overrides.contractVersion || env.GRIX_CONTRACT_VERSION || extra.contract_version, 1),
       capabilities: cleanList(overrides.capabilities || env.GRIX_CAPABILITIES || extra.capabilities, DEFAULT_CAPABILITIES),
-      localActions: cleanList(overrides.localActions || extra.local_actions, DEFAULT_LOCAL_ACTIONS),
+      localActions: cleanList(overrides.localActions || env.GRIX_LOCAL_ACTIONS || extra.local_actions, DEFAULT_LOCAL_ACTIONS),
+      adapterHint: cleanText(overrides.adapterHint) || cleanText(env.GRIX_ADAPTER_HINT) || cleanText(extra.adapter_hint) || undefined,
       connectTimeoutMs: cleanInt(overrides.connectTimeoutMs || env.GRIX_CONNECT_TIMEOUT_MS || extra.connect_timeout_ms, 10000),
       requestTimeoutMs: cleanInt(overrides.requestTimeoutMs || env.GRIX_REQUEST_TIMEOUT_MS || extra.request_timeout_ms, 20000)
     }

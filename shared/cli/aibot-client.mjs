@@ -23,7 +23,7 @@ function packetError(packet) {
 }
 
 function buildAuthPayload(config) {
-  return {
+  const payload = {
     agent_id: config.agentId,
     api_key: config.apiKey,
     client: config.client,
@@ -31,10 +31,17 @@ function buildAuthPayload(config) {
     client_version: config.clientVersion,
     protocol_version: "aibot-agent-api-v1",
     contract_version: config.contractVersion ?? 1,
-    host_type: config.hostType || "hermes",
-    capabilities: config.capabilities || ["session_route", "thread_v1", "inbound_media_v1", "local_action_v1"],
+    host_type: config.hostType || "openclaw",
+    capabilities: config.capabilities || ["session_route", "thread_v1", "inbound_media_v1", "local_action_v1", "agent_invoke"],
     local_actions: config.localActions || ["exec_approve", "exec_reject"]
   };
+  if (normalizeText(config.hostVersion)) {
+    payload.host_version = normalizeText(config.hostVersion);
+  }
+  if (normalizeText(config.adapterHint)) {
+    payload.adapter_hint = normalizeText(config.adapterHint);
+  }
+  return payload;
 }
 
 export class AibotWsClient {

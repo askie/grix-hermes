@@ -44,6 +44,10 @@ git clone <repo> /path/to/grix-hermes
 1. 直接把仓库根目录作为 `skills.external_dirs`
 2. 执行 `node ./bin/grix-hermes.mjs install --dest <目标目录>`
 
+如果你希望这组技能和 Hermes 网关不要共用同一只 API agent，可以在
+`~/.hermes/.env` 里额外配置 `GRIX_SKILL_ENDPOINT`、`GRIX_SKILL_AGENT_ID`、
+`GRIX_SKILL_API_KEY`。技能会优先使用这组独立凭证。
+
 ## 命令
 
 ```bash
@@ -81,6 +85,7 @@ bash ./publish.sh --publish
 ## 设计边界
 
 - Grix 查询、群管理、远端 Agent 管理、消息撤回：走 Grix WS 协议
+  这组短连接默认以 `openclaw` 家族声明握手，确保后端放行授权类 WS 命令
 - 注册、发验证码、创建首个 API agent：走独立 HTTP 组件
 - 发消息、发卡片：优先使用 Hermes 自带 `send_message`
 - 本项目不依赖修改 Hermes 内核，也不要求给 Hermes 增加新 tool
