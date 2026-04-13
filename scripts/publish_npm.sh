@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROOT_DIR="$(git -C "${PROJECT_DIR}" rev-parse --show-toplevel 2>/dev/null || true)"
-AUTO_BROWSER_EXPECT_SCRIPT="${PROJECT_DIR}/scripts/npm_auto_browser_auth.expect"
 PACKAGE_NAME="@dhf-hermes/grix"
 PACKAGE_SCOPE="@dhf-hermes"
 REGISTRY="${NPM_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
@@ -45,7 +44,7 @@ Behavior:
   - Default mode is preview only. It installs deps, runs tests, performs npm pack dry-run,
     and prints the target package identity plus included files.
   - Publish mode requires explicit confirmation of the exact package ref and tarball name.
-  - Browser-based npm auth can auto-open when AUTO_OPEN_NPM_BROWSER_AUTH=1.
+  - Publish mode requires an existing npm login or publish-capable token in ~/.npmrc.
   - Version bump is opt-in via AUTO_BUMP_GRIX_HERMES_NPM_VERSION=1 or --version.
 EOF
 }
@@ -246,21 +245,6 @@ process.stdout.write(encodeURIComponent(packageName));
 NODE
 }
 
-run_with_auto_browser_auth() {
-  local auto_open="${AUTO_OPEN_NPM_BROWSER_AUTH:-1}"
-  validate_flag_01 "AUTO_OPEN_NPM_BROWSER_AUTH" "${auto_open}"
-
-  if [[ "${auto_open}" != "1" ]]; then
-    "$@"
-    return
-  fi
-
-  require_cmd expect
-  [[ -f "${AUTO_BROWSER_EXPECT_SCRIPT}" ]] || \
-    fail "missing browser auth helper: ${AUTO_BROWSER_EXPECT_SCRIPT}"
-  expect "${AUTO_BROWSER_EXPECT_SCRIPT}" "$@"
-}
-
 install_and_verify_dependencies() {
   log "install dependencies with npm ci"
   npm ci
@@ -271,7 +255,7 @@ run_quality_gates() {
   npm test
 }
 
-ensure_registry_login() {
+ensure_registry_auth() {
   local whoami_output
 
   if whoami_output="$(npm whoami --registry="${REGISTRY}" 2>/dev/null)"; then
@@ -279,12 +263,7 @@ ensure_registry_login() {
     return
   fi
 
-  log "npm auth missing; start web login and auto-open browser if prompted"
-  run_with_auto_browser_auth npm login --auth-type=web --registry="${REGISTRY}" --scope="${PACKAGE_SCOPE}"
-
-  whoami_output="$(npm whoami --registry="${REGISTRY}")" || \
-    fail "npm login completed but whoami still failed"
-  log "npm auth ready as ${whoami_output}"
+  fail "npm auth missing for ${REGISTRY}; configure a publish-capable token for ${PACKAGE_SCOPE} in ~/.npmrc (or NPM_CONFIG_USERCONFIG) before running --publish"
 }
 
 capture_pack_preview() {
@@ -417,7 +396,7 @@ publish_package() {
   assert_target_version_unpublished "${version}"
 
   log "publish ${PACKAGE_NAME}@${version} to ${REGISTRY}"
-  run_with_auto_browser_auth npm publish --access public --registry="${REGISTRY}"
+  npm publish --access public --registry="${REGISTRY}"
 }
 
 verify_published_version() {
@@ -482,7 +461,7 @@ main() {
   fi
 
   require_publish_confirmation "${target_package_ref}" "${target_tarball}"
-  ensure_registry_login
+  ensure_registry_auth
   apply_target_version "${target_version}"
   capture_pack_preview
   assert_pack_contains_publishable_files
