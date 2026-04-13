@@ -7,7 +7,10 @@ The npm package name is `@dhf-hermes/grix`, and the installed command is `grix-h
 ## One-Line Install
 
 ```bash
-npx -y @dhf-hermes/grix install
+tmp="$(mktemp -d)" \
+  && npm install --prefix "$tmp" @dhf-hermes/grix \
+  && "$tmp/node_modules/.bin/grix-hermes" install \
+  && rm -rf "$tmp"
 ```
 
 By default, the bundle is installed to:

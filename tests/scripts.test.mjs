@@ -91,6 +91,52 @@ test("grix-hermes install writes a runnable bundle layout", () => {
   }
 });
 
+test("published tarball can install through the README flow", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-readme-"));
+  const installRoot = path.join(tempDir, "npm-prefix");
+  const bundleDir = path.join(tempDir, "bundle");
+  const packResult = spawnSync(
+    "npm",
+    ["pack", "--json", "--ignore-scripts"],
+    { cwd: root, encoding: "utf8" }
+  );
+
+  try {
+    assert.equal(packResult.status, 0, packResult.stderr);
+    const packPayload = JSON.parse(packResult.stdout);
+    const tarballName = packPayload[0]?.filename;
+    assert.ok(tarballName);
+
+    const installResult = spawnSync(
+      "npm",
+      ["install", "--prefix", installRoot, path.join(root, tarballName)],
+      { encoding: "utf8" }
+    );
+    assert.equal(installResult.status, 0, installResult.stderr);
+
+    const cliPath = path.join(installRoot, "node_modules", ".bin", "grix-hermes");
+    assert.equal(fs.existsSync(cliPath), true);
+
+    const bundleInstallResult = spawnSync(
+      cliPath,
+      ["install", "--dest", bundleDir],
+      { encoding: "utf8" }
+    );
+    assert.equal(bundleInstallResult.status, 0, bundleInstallResult.stderr);
+    assert.equal(bundleInstallResult.stdout.trim(), bundleDir);
+    assert.equal(fs.existsSync(path.join(bundleDir, "bin", "grix-hermes.mjs")), true);
+    assert.equal(fs.existsSync(path.join(bundleDir, "node_modules", "yaml", "package.json")), true);
+  } finally {
+    const tarballPath = packResult.status === 0
+      ? path.join(root, JSON.parse(packResult.stdout)[0]?.filename || "")
+      : "";
+    if (tarballPath) {
+      fs.rmSync(tarballPath, { force: true });
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
   const hermesHome = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-home-"));
   const resolvedHermesHome = fs.realpathSync(hermesHome);
