@@ -68,7 +68,10 @@ def detect_repo_state(repo_root: Path, git_cmd: str) -> dict[str, Any]:
 
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = Path(clean_text(args.repo_root) or project_root()).resolve()
-    install_dir = Path(clean_text(args.install_dir)).resolve() if clean_text(args.install_dir) else None
+    raw_install_dir = clean_text(args.install_dir)
+    install_dir = Path(raw_install_dir).resolve() if raw_install_dir else None
+    if install_dir is None and args.mode in {"apply-update", "check-and-apply"}:
+        install_dir = default_install_dir()
     repo_state = detect_repo_state(repo_root, args.git)
     strategy = "git-pull"
     if not repo_state["has_git"]:

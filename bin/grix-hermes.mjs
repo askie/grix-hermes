@@ -2,7 +2,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { defaultInstallDir, installEntries, manifestData, projectRoot, SKILLS } from "../lib/manifest.mjs";
+import {
+  defaultInstallDir,
+  installEntries,
+  manifestData,
+  projectRoot,
+  runtimeDependencyEntries,
+  SKILLS
+} from "../lib/manifest.mjs";
 
 function printHelp() {
   console.log(`grix-hermes
@@ -52,6 +59,9 @@ function runInstall(flags) {
   fs.mkdirSync(destRoot, { recursive: true });
   for (const entry of installEntries()) {
     copyRecursive(path.join(root, entry), path.join(destRoot, entry), Boolean(flags.force));
+  }
+  for (const dependency of runtimeDependencyEntries()) {
+    copyRecursive(dependency.source, path.join(destRoot, dependency.dest), Boolean(flags.force));
   }
   console.log(destRoot);
 }

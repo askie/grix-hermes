@@ -32,10 +32,13 @@ By default, the bundle is installed to:
 The recommended setup is simple:
 
 1. Install `grix-hermes` once
-2. Let multiple Hermes profiles share the same skill directory
-3. Keep each profile's own `.env`, `config.yaml`, and `SOUL.md`
+2. Keep the installed bundle under `~/.hermes/skills/grix-hermes`
+3. Let multiple Hermes profiles share that same install directory
+4. Keep each profile's own `.env`, `config.yaml`, and `SOUL.md`
 
 This way, you update the code once and every profile picks it up.
+
+Do not point Hermes `skills.external_dirs` at the local source checkout. Always point Hermes at the installed bundle directory instead.
 
 ## Main Agent vs Other Agents
 

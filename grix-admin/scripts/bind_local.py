@@ -25,11 +25,48 @@ def resolve_default_hermes_home() -> Path:
     return Path(os.path.expanduser(raw)).resolve()
 
 
+def resolve_default_install_dir() -> Path:
+    return resolve_default_hermes_home() / "skills" / "grix-hermes"
+
+
 def resolve_profile_dir(profile_name: str) -> Path:
     normalized = clean_text(profile_name)
     if normalized in {"", "default"}:
         return resolve_default_hermes_home()
     return (Path.home() / ".hermes" / "profiles" / normalized).resolve()
+
+
+def resolve_install_dir(raw_install_dir: Any) -> Path:
+    raw = clean_text(raw_install_dir)
+    return Path(os.path.expanduser(raw)).resolve() if raw else resolve_default_install_dir()
+
+
+def is_grix_bundle_dir(candidate: Path) -> bool:
+    required_entries = [
+        candidate / "bin" / "grix-hermes.mjs",
+        candidate / "lib" / "manifest.mjs",
+        candidate / "shared" / "cli" / "grix-hermes.mjs",
+        candidate / "grix-admin" / "SKILL.md",
+    ]
+    return all(entry.exists() for entry in required_entries)
+
+
+def validate_install_dir(install_dir: Path) -> None:
+    if not install_dir.exists():
+        raise RuntimeError(
+            f"grix-hermes install dir does not exist: {install_dir}. "
+            "Run `npx -y @dhf-hermes/grix install` first or pass --install-dir."
+        )
+    if (install_dir / ".git").exists():
+        raise RuntimeError(
+            f"Install dir points to a git checkout: {install_dir}. "
+            "Use the published package install dir instead of the local source tree."
+        )
+    if not is_grix_bundle_dir(install_dir):
+        raise RuntimeError(
+            f"Install dir is not a valid grix-hermes bundle: {install_dir}. "
+            "Reinstall the published package and retry."
+        )
 
 
 def format_env_value(value: str) -> str:
@@ -116,14 +153,14 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     profile_mode = args.profile_mode
     is_main = parse_optional_bool(args.is_main)
     management_policy = resolve_management_policy(profile_exists, is_main)
-    skill_source_dir = "" if args.skip_skill_source else str(
-        Path(clean_text(args.skill_source_dir) or Path(__file__).resolve().parents[2]).resolve()
-    )
+    install_dir = resolve_install_dir(args.install_dir)
 
     if profile_exists and profile_mode == "create":
         raise RuntimeError(f"Hermes profile already exists: {profile_name}")
     if not profile_exists and profile_mode == "reuse":
         raise RuntimeError(f"Hermes profile does not exist: {profile_name}")
+    if not args.dry_run:
+        validate_install_dir(install_dir)
 
     create_cmd: list[str] | None = None
     if not profile_exists:
@@ -179,18 +216,17 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     commands: list[list[str]] = []
     if create_cmd:
         commands.append(create_cmd)
-    if skill_source_dir:
-        commands.append([
-            args.node,
-            str(Path(__file__).with_name("patch_profile_config.mjs")),
-            "--config",
-            str(config_path),
-            "--external-dir",
-            skill_source_dir,
-            "--management-policy",
-            management_policy,
-            "--json",
-        ])
+    commands.append([
+        args.node,
+        str(Path(__file__).with_name("patch_profile_config.mjs")),
+        "--config",
+        str(config_path),
+        "--external-dir",
+        str(install_dir),
+        "--management-policy",
+        management_policy,
+        "--json",
+    ])
 
     return {
         "profile_name": profile_name,
@@ -202,7 +238,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "is_main": is_main,
         "management_policy": management_policy,
         "api_endpoint": args.api_endpoint,
-        "skill_source_dir": skill_source_dir,
+        "install_dir": str(install_dir),
         "env_path": str(env_path),
         "config_path": str(config_path),
         "env_updates": env_updates,
@@ -221,8 +257,7 @@ def main() -> int:
     parser.add_argument("--profile-mode", choices=["create", "reuse", "create-or-reuse"], default="create-or-reuse")
     parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     parser.add_argument("--clone-from", default="")
-    parser.add_argument("--skill-source-dir", default="")
-    parser.add_argument("--skip-skill-source", action="store_true")
+    parser.add_argument("--install-dir", default="")
     parser.add_argument("--account-id", default="")
     parser.add_argument("--skill-endpoint", default="")
     parser.add_argument("--skill-agent-id", default="")

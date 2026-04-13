@@ -49,8 +49,7 @@ def main() -> int:
     parser.add_argument("--profile-mode", default="create-or-reuse", choices=["create", "reuse", "create-or-reuse"])
     parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     parser.add_argument("--clone-from", default="")
-    parser.add_argument("--skill-source-dir", default="")
-    parser.add_argument("--skip-skill-source", action="store_true")
+    parser.add_argument("--install-dir", default="")
     parser.add_argument("--account-id", default="")
     parser.add_argument("--skill-endpoint", default="")
     parser.add_argument("--skill-agent-id", default="")
@@ -89,10 +88,8 @@ def main() -> int:
             cmd.extend(["--profile-name", args.profile_name])
         if args.clone_from:
             cmd.extend(["--clone-from", args.clone_from])
-        if args.skill_source_dir:
-            cmd.extend(["--skill-source-dir", args.skill_source_dir])
-        if args.skip_skill_source:
-            cmd.append("--skip-skill-source")
+        if args.install_dir:
+            cmd.extend(["--install-dir", args.install_dir])
         if args.account_id:
             cmd.extend(["--account-id", args.account_id])
         if args.skill_endpoint:
