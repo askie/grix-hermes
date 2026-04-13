@@ -295,8 +295,7 @@ const required = [
   "grix-register/SKILL.md",
   "grix-update/SKILL.md",
   "message-send/SKILL.md",
-  "message-unsend/SKILL.md",
-  "openclaw-memory-setup/SKILL.md"
+  "message-unsend/SKILL.md"
 ];
 const missing = required.filter((path) => !files.has(path));
 const forbidden = [...files].filter((path) =>

@@ -17,6 +17,6 @@ test("grix-egg validate_install_context reports missing fields", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   const payload = JSON.parse(result.stdout);
-  assert.equal(payload.route, "openclaw_create_new");
+  assert.equal(payload.route, "hermes_create_new");
   assert.deepEqual(payload.missing, ["install_id", "main_agent"]);
 });

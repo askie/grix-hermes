@@ -18,34 +18,36 @@ function readPayload(argv) {
   return JSON.parse(stdin);
 }
 
-function requiredForRoute(route) {
-  if (route === "openclaw_create_new" || route === "openclaw_existing") {
-    return ["install_id", "main_agent"];
+function normalizeRoute(rawRoute) {
+  const route = cleanText(rawRoute);
+  if (route === "openclaw_create_new") {
+    return "hermes_create_new";
   }
-  if (route === "claude_existing") {
-    return ["install_id"];
+  if (route === "openclaw_existing") {
+    return "hermes_existing";
+  }
+  return route;
+}
+
+function requiredForRoute(route) {
+  if (route === "hermes_create_new" || route === "hermes_existing") {
+    return ["install_id", "main_agent"];
   }
   return ["install_id"];
 }
 
 function buildSteps(route) {
-  if (route === "openclaw_create_new" || route === "openclaw_existing") {
+  if (route === "hermes_create_new" || route === "hermes_existing") {
     return [
       "准备安装上下文",
       "必要时创建远端 API agent",
-      "写入并校验 OpenClaw 配置",
+      "创建或定位目标 Hermes profile",
+      "写入或替换 SOUL.md",
+      "写入并校验 Hermes 绑定",
       "发送安装状态卡",
       "创建测试群并保存准确 session_id",
       "向当前私聊发送测试群会话卡片",
       "在测试群做身份验收并修到正确"
-    ];
-  }
-  if (route === "claude_existing") {
-    return [
-      "准备 Claude 安装上下文",
-      "安装目标技能或包",
-      "必要时同步 OpenClaw 配置",
-      "发送状态卡并决定是否群测"
     ];
   }
   return ["识别路由并补齐上下文"];
@@ -54,7 +56,7 @@ function buildSteps(route) {
 try {
   const payload = readPayload(process.argv.slice(2));
   const install = payload.install && typeof payload.install === "object" ? payload.install : {};
-  const route = cleanText(install.route || payload.route || payload.install_route);
+  const route = normalizeRoute(install.route || payload.route || payload.install_route);
   const required = requiredForRoute(route);
   const missing = required.filter((key) => !cleanText(payload[key] ?? install[key]));
   const result = {

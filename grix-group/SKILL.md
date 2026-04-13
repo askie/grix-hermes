@@ -29,7 +29,7 @@ node scripts/group.mjs --action add_members --session-id <SESSION_ID> --member-i
 - 一次业务动作只做一次 CLI 调用
 - `leave` 静默执行，不要先去群里发告别消息
 - `memberIds` 和 `memberTypes` 数量要对应
-- 不要把本地 agent 名、本地 `main_agent`、OpenClaw 本地 ID 直接当成 Grix 成员 ID
+- 不要把本地 agent 名、本地 `main_agent`、Hermes profile 名直接当成 Grix 成员 ID
 
 ## 输出要求
 

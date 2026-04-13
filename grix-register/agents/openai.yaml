@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Register"
-  short_description: "Register Grix and bootstrap the first API agent."
-  default_prompt: "Use $grix-register to register a Grix account and create the first API agent."
+  short_description: "Register Grix and bootstrap the first Hermes-ready API agent."
+  default_prompt: "Use $grix-register to register a Grix account, create the first API agent, and hand off Hermes binding."
 
 policy:
   allow_implicit_invocation: true

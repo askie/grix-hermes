@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind one remote Grix API agent into local OpenClaw config."""
+"""Bind one remote Grix API agent into a local Hermes profile."""
 
 from __future__ import annotations
 
@@ -12,15 +12,79 @@ import sys
 from typing import Any
 
 
-MINIMAL_PERSONA_FILES = {
-    "IDENTITY.md": "# Identity\n\nThis agent is managed by grix-hermes.\n",
-    "SOUL.md": "# Soul\n\nRespond clearly and keep the workflow moving.\n",
-    "AGENTS.md": "# Agents\n\nUse the current workspace and configured tools.\n",
-}
+def clean_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
-def run_command(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(cmd, text=True, capture_output=True)
+def ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_default_hermes_home() -> Path:
+    raw = clean_text(os.environ.get("HERMES_HOME")) or "~/.hermes"
+    return Path(os.path.expanduser(raw)).resolve()
+
+
+def resolve_profile_dir(profile_name: str) -> Path:
+    normalized = clean_text(profile_name)
+    if normalized in {"", "default"}:
+        return resolve_default_hermes_home()
+    return (Path.home() / ".hermes" / "profiles" / normalized).resolve()
+
+
+def format_env_value(value: str) -> str:
+    if not value:
+        return ""
+    if any(char.isspace() for char in value) or any(char in value for char in ['"', "#"]):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def read_env_lines(env_path: Path) -> list[str]:
+    if not env_path.exists():
+        return []
+    return env_path.read_text(encoding="utf-8").splitlines()
+
+
+def apply_env_changes(env_path: Path, updates: dict[str, str], removals: set[str]) -> dict[str, Any]:
+    lines = read_env_lines(env_path)
+    result_lines: list[str] = []
+    changed_keys: list[str] = []
+    seen: set[str] = set()
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            result_lines.append(raw_line)
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in removals:
+            changed_keys.append(key)
+            continue
+        if key in updates:
+            result_lines.append(f"{key}={format_env_value(updates[key])}")
+            changed_keys.append(key)
+            seen.add(key)
+            continue
+        result_lines.append(raw_line)
+
+    for key, value in updates.items():
+        if key in seen:
+            continue
+        result_lines.append(f"{key}={format_env_value(value)}")
+        changed_keys.append(key)
+
+    ensure_dir(env_path.parent)
+    env_path.write_text("\n".join(result_lines).rstrip() + "\n", encoding="utf-8")
+    return {
+        "env_path": str(env_path),
+        "changed_keys": sorted(set(changed_keys)),
+    }
+
+
+def run_command(cmd: list[str], *, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(cmd, text=True, capture_output=True, env=env)
     if check and result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
@@ -28,188 +92,165 @@ def run_command(cmd: list[str], *, check: bool = True) -> subprocess.CompletedPr
     return result
 
 
-def safe_config_get(openclaw_cmd: str, path: str, default: Any) -> Any:
-    result = subprocess.run(
-        [openclaw_cmd, "config", "get", path, "--json"],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        return default
-    text = (result.stdout or "").strip()
-    if not text:
-        return default
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return default
-
-
-def ensure_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def ensure_minimal_persona(workspace: Path) -> list[str]:
-    ensure_dir(workspace)
-    created: list[str] = []
-    for file_name, content in MINIMAL_PERSONA_FILES.items():
-        file_path = workspace / file_name
-        if file_path.exists():
-            continue
-        file_path.write_text(content, encoding="utf-8")
-        created.append(str(file_path))
-    return created
-
-
-def merge_tool_allowlist(current: Any) -> list[str]:
-    existing: list[str] = []
-    if isinstance(current, list):
-        for item in current:
-            text = str(item or "").strip()
-            if text:
-                existing.append(text)
-    if "message" not in existing:
-        existing.append("message")
-    return existing
-
-
-def resolve_model(args: argparse.Namespace, agents_list: list[dict[str, Any]], openclaw_cmd: str, skip_current: bool) -> str:
-    explicit = str(args.model or "").strip()
-    if explicit:
-        return explicit
-    for entry in agents_list:
-        if str(entry.get("id") or "").strip() == args.agent_name:
-            model = str(entry.get("model") or "").strip()
-            if model:
-                return model
-    if skip_current:
-        return ""
-    defaults = safe_config_get(openclaw_cmd, "agents.defaults.model.primary", "")
-    return str(defaults or "").strip()
-
-
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
-    openclaw_cmd = args.openclaw
-    skip_current = bool(args.skip_current)
-    current_accounts = {} if skip_current else safe_config_get(openclaw_cmd, "channels.grix.accounts", {})
-    current_agents = [] if skip_current else safe_config_get(openclaw_cmd, "agents.list", [])
-    current_profile = "coding" if skip_current else safe_config_get(openclaw_cmd, "tools.profile", "coding")
-    current_allow = [] if skip_current else safe_config_get(openclaw_cmd, "tools.alsoAllow", [])
-    current_visibility = "agent" if skip_current else safe_config_get(openclaw_cmd, "tools.sessions.visibility", "agent")
-    current_grix_enabled = True if skip_current else safe_config_get(openclaw_cmd, "channels.grix.enabled", True)
-
-    openclaw_root = Path(os.path.expanduser(args.openclaw_home or "~/.openclaw"))
-    workspace = openclaw_root / f"workspace-{args.agent_name}"
-    agent_dir = openclaw_root / "agents" / args.agent_name / "agent"
-    model = resolve_model(args, current_agents if isinstance(current_agents, list) else [], openclaw_cmd, skip_current)
-    if not model:
-        raise RuntimeError("Missing model. Pass --model or ensure agents.defaults.model.primary exists.")
-
-    account_json = {
-        "name": args.agent_name,
-        "enabled": True,
-        "apiKey": args.api_key,
-        "wsUrl": args.api_endpoint,
-        "agentId": args.agent_id,
-    }
-
-    next_agents = []
-    replaced = False
-    for entry in current_agents if isinstance(current_agents, list) else []:
-        if str(entry.get("id") or "").strip() != args.agent_name:
-            next_agents.append(entry)
-            continue
-        replaced = True
-        updated = dict(entry)
-        updated["id"] = args.agent_name
-        updated["name"] = args.agent_name
-        updated["workspace"] = str(workspace)
-        updated["agentDir"] = str(agent_dir)
-        updated["model"] = model
-        next_agents.append(updated)
-    if not replaced:
-        next_agents.append(
-            {
-                "id": args.agent_name,
-                "name": args.agent_name,
-                "workspace": str(workspace),
-                "agentDir": str(agent_dir),
-                "model": model,
-            }
-        )
-
-    commands: list[list[str]] = [
-        [openclaw_cmd, "config", "set", f"channels.grix.accounts.{args.agent_name}", json.dumps(account_json, ensure_ascii=False), "--strict-json"],
-        [openclaw_cmd, "config", "set", "agents.list", json.dumps(next_agents, ensure_ascii=False), "--strict-json"],
-        [openclaw_cmd, "agents", "bind", "--agent", args.agent_name, "--bind", f"grix:{args.agent_name}", "--json"],
-        [openclaw_cmd, "config", "set", "tools.profile", json.dumps(str(current_profile or "coding")), "--strict-json"],
-        [openclaw_cmd, "config", "set", "tools.alsoAllow", json.dumps(merge_tool_allowlist(current_allow), ensure_ascii=False), "--strict-json"],
-        [openclaw_cmd, "config", "set", "tools.sessions.visibility", json.dumps(str(current_visibility or "agent")), "--strict-json"],
-    ]
-    if current_grix_enabled is False:
-        commands.append([openclaw_cmd, "config", "set", "channels.grix.enabled", "true", "--strict-json"])
-    commands.extend(
-        [
-            [openclaw_cmd, "config", "validate"],
-            [openclaw_cmd, "config", "get", f"channels.grix.accounts.{args.agent_name}", "--json"],
-            [openclaw_cmd, "config", "get", "agents.list", "--json"],
-            [openclaw_cmd, "agents", "bindings", "--agent", args.agent_name, "--json"],
-        ]
+    profile_name = clean_text(args.profile_name) or args.agent_name
+    profile_dir = resolve_profile_dir(profile_name)
+    profile_exists = profile_dir.exists()
+    profile_mode = args.profile_mode
+    skill_source_dir = "" if args.skip_skill_source else str(
+        Path(clean_text(args.skill_source_dir) or Path(__file__).resolve().parents[2]).resolve()
     )
+
+    if profile_exists and profile_mode == "create":
+        raise RuntimeError(f"Hermes profile already exists: {profile_name}")
+    if not profile_exists and profile_mode == "reuse":
+        raise RuntimeError(f"Hermes profile does not exist: {profile_name}")
+
+    create_cmd: list[str] | None = None
+    if not profile_exists:
+        create_cmd = [args.hermes, "profile", "create", profile_name, "--clone"]
+        clone_from = clean_text(args.clone_from)
+        if clone_from:
+            create_cmd.extend(["--clone-from", clone_from])
+
+    skill_endpoint = clean_text(args.skill_endpoint) or args.api_endpoint
+    skill_agent_id = clean_text(args.skill_agent_id) or args.agent_id
+    skill_api_key = clean_text(args.skill_api_key) or args.api_key
+    skill_account_id = clean_text(args.skill_account_id)
+
+    env_updates = {
+        "GRIX_ENDPOINT": args.api_endpoint,
+        "GRIX_AGENT_ID": args.agent_id,
+        "GRIX_API_KEY": args.api_key,
+        "GRIX_SKILL_ENDPOINT": skill_endpoint,
+        "GRIX_SKILL_AGENT_ID": skill_agent_id,
+        "GRIX_SKILL_API_KEY": skill_api_key,
+    }
+    env_removals: set[str] = set()
+
+    account_id = clean_text(args.account_id)
+    if account_id:
+        env_updates["GRIX_ACCOUNT_ID"] = account_id
+    if skill_account_id:
+        env_updates["GRIX_SKILL_ACCOUNT_ID"] = skill_account_id
+    elif account_id:
+        env_updates["GRIX_SKILL_ACCOUNT_ID"] = account_id
+
+    allowed_users = clean_text(args.allowed_users)
+    allow_all_users = clean_text(args.allow_all_users).lower()
+    if allowed_users:
+        env_updates["GRIX_ALLOWED_USERS"] = allowed_users
+        env_removals.add("GRIX_ALLOW_ALL_USERS")
+    elif allow_all_users == "true":
+        env_updates["GRIX_ALLOW_ALL_USERS"] = "true"
+        env_removals.add("GRIX_ALLOWED_USERS")
+    elif allow_all_users == "false":
+        env_removals.add("GRIX_ALLOW_ALL_USERS")
+
+    home_channel = clean_text(args.home_channel)
+    home_channel_name = clean_text(args.home_channel_name)
+    if home_channel:
+        env_updates["GRIX_HOME_CHANNEL"] = home_channel
+    if home_channel_name:
+        env_updates["GRIX_HOME_CHANNEL_NAME"] = home_channel_name
+
+    config_path = profile_dir / "config.yaml"
+    env_path = profile_dir / ".env"
+
+    commands: list[list[str]] = []
+    if create_cmd:
+        commands.append(create_cmd)
+    if skill_source_dir:
+        commands.append([
+            args.node,
+            str(Path(__file__).with_name("patch_profile_config.mjs")),
+            "--config",
+            str(config_path),
+            "--external-dir",
+            skill_source_dir,
+            "--json",
+        ])
 
     return {
+        "profile_name": profile_name,
+        "profile_dir": str(profile_dir),
+        "profile_exists": profile_exists,
+        "profile_mode": profile_mode,
         "agent_name": args.agent_name,
         "agent_id": args.agent_id,
-        "workspace": str(workspace),
-        "agent_dir": str(agent_dir),
-        "model": model,
-        "account": account_json,
-        "agents_list": next_agents,
+        "api_endpoint": args.api_endpoint,
+        "skill_source_dir": skill_source_dir,
+        "env_path": str(env_path),
+        "config_path": str(config_path),
+        "env_updates": env_updates,
+        "env_removals": sorted(env_removals),
         "commands": commands,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Bind one Grix API agent into local OpenClaw config.")
+    parser = argparse.ArgumentParser(description="Bind one Grix API agent into a local Hermes profile.")
     parser.add_argument("--agent-name", required=True)
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--api-endpoint", required=True)
     parser.add_argument("--api-key", required=True)
-    parser.add_argument("--model", default="")
-    parser.add_argument("--openclaw", default="openclaw")
-    parser.add_argument("--openclaw-home", default="")
-    parser.add_argument("--skip-current", action="store_true", help="Do not read current OpenClaw config before building the plan.")
+    parser.add_argument("--profile-name", default="")
+    parser.add_argument("--profile-mode", choices=["create", "reuse", "create-or-reuse"], default="create-or-reuse")
+    parser.add_argument("--clone-from", default="")
+    parser.add_argument("--skill-source-dir", default="")
+    parser.add_argument("--skip-skill-source", action="store_true")
+    parser.add_argument("--account-id", default="")
+    parser.add_argument("--skill-endpoint", default="")
+    parser.add_argument("--skill-agent-id", default="")
+    parser.add_argument("--skill-api-key", default="")
+    parser.add_argument("--skill-account-id", default="")
+    parser.add_argument("--allowed-users", default="")
+    parser.add_argument("--allow-all-users", default="", choices=["", "true", "false"])
+    parser.add_argument("--home-channel", default="")
+    parser.add_argument("--home-channel-name", default="")
+    parser.add_argument("--hermes", default="hermes")
+    parser.add_argument("--node", default="node")
     parser.add_argument("--dry-run", action="store_true", help="Only print the planned result and commands.")
     parser.add_argument("--json", action="store_true", help="Emit JSON summary.")
     args = parser.parse_args()
 
     try:
         plan = build_plan(args)
-        created_files: list[str] = []
+        created_profile = False
+        env_result: dict[str, Any] | None = None
+        config_result: dict[str, Any] | None = None
         command_results: list[dict[str, Any]] = []
+
         if not args.dry_run:
-            created_files = ensure_minimal_persona(Path(plan["workspace"]))
-            ensure_dir(Path(plan["agent_dir"]))
             for cmd in plan["commands"]:
                 result = run_command(cmd)
-                command_results.append(
-                    {
-                        "cmd": cmd,
-                        "stdout": (result.stdout or "").strip(),
-                        "stderr": (result.stderr or "").strip(),
-                    }
-                )
+                stdout = (result.stdout or "").strip()
+                stderr = (result.stderr or "").strip()
+                command_results.append({"cmd": cmd, "stdout": stdout, "stderr": stderr})
+                if cmd[0] == args.hermes:
+                    created_profile = True
+                elif stdout:
+                    config_result = json.loads(stdout)
+
+            env_result = apply_env_changes(
+                Path(plan["env_path"]),
+                plan["env_updates"],
+                set(plan["env_removals"]),
+            )
+
         payload = {
             "ok": True,
             "dry_run": bool(args.dry_run),
-            "created_files": created_files,
+            "created_profile": created_profile,
+            "env_result": env_result,
+            "config_result": config_result,
             "command_results": command_results,
             **plan,
         }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            print(f"agent={plan['agent_name']} workspace={plan['workspace']} dry_run={args.dry_run}")
+            print(f"profile={plan['profile_name']} agent={plan['agent_name']} dry_run={args.dry_run}")
             for cmd in plan["commands"]:
                 print("$ " + " ".join(cmd))
         return 0

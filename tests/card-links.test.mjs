@@ -15,7 +15,7 @@ test("conversation card encodes title", () => {
 test("user profile card includes user id", () => {
   const card = buildUserProfileCard({
     userId: "2035123456789012345",
-    nickname: "writer-openclaw"
+    nickname: "writer-hermes"
   });
   assert.ok(card.includes("user_id=2035123456789012345"));
 });

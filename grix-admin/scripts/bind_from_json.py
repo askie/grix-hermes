@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract bind-local fields from JSON and forward them to bind_local.py."""
+"""Extract Hermes bind fields from JSON and forward them to bind_local.py."""
 
 from __future__ import annotations
 
@@ -30,9 +30,20 @@ def as_record(value: Any) -> dict[str, Any]:
 
 def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
     handoff = as_record(payload.get("handoff"))
+    bind_hermes = as_record(handoff.get("bind_hermes"))
+    if bind_hermes:
+        return {
+            "profile_name": clean_text(bind_hermes.get("profile_name")),
+            "agent_name": clean_text(bind_hermes.get("agent_name")),
+            "agent_id": clean_text(bind_hermes.get("agent_id")),
+            "api_endpoint": clean_text(bind_hermes.get("api_endpoint")),
+            "api_key": clean_text(bind_hermes.get("api_key")),
+        }
+
     bind_local = as_record(handoff.get("bind_local"))
     if bind_local:
         return {
+            "profile_name": clean_text(bind_local.get("profile_name") or bind_local.get("agent_name")),
             "agent_name": clean_text(bind_local.get("agent_name")),
             "agent_id": clean_text(bind_local.get("agent_id")),
             "api_endpoint": clean_text(bind_local.get("api_endpoint")),
@@ -42,6 +53,7 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
     created_agent = as_record(payload.get("createdAgent"))
     if created_agent:
         return {
+            "profile_name": clean_text(created_agent.get("profile_name") or created_agent.get("agent_name") or created_agent.get("name")),
             "agent_name": clean_text(created_agent.get("agent_name") or created_agent.get("name")),
             "agent_id": clean_text(created_agent.get("id") or created_agent.get("agent_id")),
             "api_endpoint": clean_text(created_agent.get("api_endpoint") or payload.get("api_endpoint")),
@@ -49,6 +61,7 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
         }
 
     return {
+        "profile_name": clean_text(payload.get("profile_name") or payload.get("agent_name") or payload.get("name")),
         "agent_name": clean_text(payload.get("agent_name") or payload.get("name")),
         "agent_id": clean_text(payload.get("agent_id") or payload.get("id")),
         "api_endpoint": clean_text(payload.get("api_endpoint")),
@@ -57,12 +70,24 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Read agent JSON and forward it to bind_local.py.")
+    parser = argparse.ArgumentParser(description="Read agent JSON and forward it to Hermes bind helper.")
     parser.add_argument("--from-file", default="")
-    parser.add_argument("--model", default="")
-    parser.add_argument("--openclaw", default="openclaw")
-    parser.add_argument("--openclaw-home", default="")
-    parser.add_argument("--skip-current", action="store_true")
+    parser.add_argument("--profile-name", default="")
+    parser.add_argument("--profile-mode", default="create-or-reuse", choices=["create", "reuse", "create-or-reuse"])
+    parser.add_argument("--clone-from", default="")
+    parser.add_argument("--skill-source-dir", default="")
+    parser.add_argument("--skip-skill-source", action="store_true")
+    parser.add_argument("--account-id", default="")
+    parser.add_argument("--skill-endpoint", default="")
+    parser.add_argument("--skill-agent-id", default="")
+    parser.add_argument("--skill-api-key", default="")
+    parser.add_argument("--skill-account-id", default="")
+    parser.add_argument("--allowed-users", default="")
+    parser.add_argument("--allow-all-users", default="", choices=["", "true", "false"])
+    parser.add_argument("--home-channel", default="")
+    parser.add_argument("--home-channel-name", default="")
+    parser.add_argument("--hermes", default="hermes")
+    parser.add_argument("--node", default="node")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -70,6 +95,8 @@ def main() -> int:
     try:
         payload = load_payload(args)
         bind_fields = extract_bind_fields(payload)
+        if not bind_fields.get("profile_name"):
+            bind_fields["profile_name"] = bind_fields.get("agent_name", "")
         missing = [key for key, value in bind_fields.items() if not value]
         if missing:
             raise RuntimeError(f"Missing bind-local fields: {', '.join(missing)}")
@@ -85,15 +112,40 @@ def main() -> int:
             bind_fields["api_endpoint"],
             "--api-key",
             bind_fields["api_key"],
-            "--openclaw",
-            args.openclaw,
+            "--profile-mode",
+            args.profile_mode,
+            "--hermes",
+            args.hermes,
+            "--node",
+            args.node,
         ]
-        if args.model:
-            cmd.extend(["--model", args.model])
-        if args.openclaw_home:
-            cmd.extend(["--openclaw-home", args.openclaw_home])
-        if args.skip_current:
-            cmd.append("--skip-current")
+        profile_name = args.profile_name or bind_fields["profile_name"]
+        if profile_name:
+            cmd.extend(["--profile-name", profile_name])
+        if args.clone_from:
+            cmd.extend(["--clone-from", args.clone_from])
+        if args.skill_source_dir:
+            cmd.extend(["--skill-source-dir", args.skill_source_dir])
+        if args.skip_skill_source:
+            cmd.append("--skip-skill-source")
+        if args.account_id:
+            cmd.extend(["--account-id", args.account_id])
+        if args.skill_endpoint:
+            cmd.extend(["--skill-endpoint", args.skill_endpoint])
+        if args.skill_agent_id:
+            cmd.extend(["--skill-agent-id", args.skill_agent_id])
+        if args.skill_api_key:
+            cmd.extend(["--skill-api-key", args.skill_api_key])
+        if args.skill_account_id:
+            cmd.extend(["--skill-account-id", args.skill_account_id])
+        if args.allowed_users:
+            cmd.extend(["--allowed-users", args.allowed_users])
+        if args.allow_all_users:
+            cmd.extend(["--allow-all-users", args.allow_all_users])
+        if args.home_channel:
+            cmd.extend(["--home-channel", args.home_channel])
+        if args.home_channel_name:
+            cmd.extend(["--home-channel-name", args.home_channel_name])
         if args.dry_run:
             cmd.append("--dry-run")
         if args.json:

@@ -5,7 +5,7 @@
 建议输入：
 
 ```json
-{"mode":"check-and-apply","plugin_id":"grix","allow_restart":true}
+{"mode":"check-and-apply","repo_root":"/path/to/grix-hermes","install_dir":"~/.hermes/skills/grix-hermes","allow_dirty":false}
 ```
 
 如果 cron 自己负责通知，技能侧不要再猜消息目标。

@@ -36,7 +36,7 @@ test("message-send send helper shows usage on help", () => {
   assert.match(result.stdout, /send --to/);
 });
 
-test("grix-admin bind_local dry-run builds command plan", () => {
+test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
   const result = spawnSync(
     "python3",
     [
@@ -49,9 +49,14 @@ test("grix-admin bind_local dry-run builds command plan", () => {
       "wss://example/ws",
       "--api-key",
       "ak_test",
-      "--model",
-      "openrouter/openai/gpt-4.1",
-      "--skip-current",
+      "--skill-endpoint",
+      "wss://example/ws-skill",
+      "--skill-agent-id",
+      "9002",
+      "--skill-api-key",
+      "ak_skill",
+      "--profile-name",
+      "demo-agent",
       "--dry-run",
       "--json"
     ],
@@ -61,8 +66,12 @@ test("grix-admin bind_local dry-run builds command plan", () => {
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, true);
   assert.equal(payload.agent_name, "demo-agent");
+  assert.equal(payload.profile_name, "demo-agent");
+  assert.equal(payload.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
+  assert.equal(payload.env_updates.GRIX_SKILL_AGENT_ID, "9002");
+  assert.equal(payload.env_updates.GRIX_SKILL_API_KEY, "ak_skill");
   assert.equal(Array.isArray(payload.commands), true);
-  assert.ok(payload.commands.length >= 6);
+  assert.ok(payload.commands.length >= 1);
 });
 
 test("grix-update dry-run builds update plan", () => {
@@ -72,10 +81,8 @@ test("grix-update dry-run builds update plan", () => {
       path.join(root, "grix-update/scripts/grix_update.py"),
       "--mode",
       "check-and-apply",
-      "--plugin-id",
-      "grix",
-      "--allow-restart",
-      "true",
+      "--repo-root",
+      root,
       "--dry-run",
       "--json"
     ],
@@ -85,7 +92,7 @@ test("grix-update dry-run builds update plan", () => {
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, true);
   assert.equal(payload.mode, "check-and-apply");
-  assert.ok(payload.commands.some((cmd) => cmd.includes("update")));
+  assert.ok(payload.commands.some((entry) => entry.cmd.includes("pull")));
 });
 
 test("grix-admin bind_from_json forwards remote result", () => {
@@ -101,9 +108,8 @@ test("grix-admin bind_from_json forwards remote result", () => {
     "python3",
     [
       path.join(root, "grix-admin/scripts/bind_from_json.py"),
-      "--model",
-      "openrouter/openai/gpt-4.1",
-      "--skip-current",
+      "--profile-name",
+      "demo-agent",
       "--dry-run",
       "--json"
     ],
@@ -131,9 +137,14 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
         path.join(root, "grix-register/scripts/create_api_agent_and_bind.py"),
         "--agent-json-file",
         fixturePath,
-        "--model",
-        "openrouter/openai/gpt-4.1",
-        "--skip-current",
+        "--profile-name",
+        "demo-agent",
+        "--skill-endpoint",
+        "wss://example/ws-skill",
+        "--skill-agent-id",
+        "9002",
+        "--skill-api-key",
+        "ak_skill",
         "--dry-run",
         "--json"
       ],
@@ -143,6 +154,9 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
     const parsed = JSON.parse(result.stdout);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.bind_result.agent_name, "demo-agent");
+    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
+    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_AGENT_ID, "9002");
+    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_API_KEY, "ak_skill");
   } finally {
     fs.rmSync(fixturePath, { force: true });
   }

@@ -151,7 +151,8 @@ def build_agent_result(action: str, result: dict):
     api_endpoint = str(data.get("api_endpoint", "")).strip()
     api_key = str(data.get("api_key", "")).strip()
     agent_name = str(data.get("agent_name", "")).strip()
-    bind_local_payload = {
+    bind_hermes_payload = {
+        "profile_name": agent_name,
         "agent_name": agent_name,
         "agent_id": agent_id,
         "api_endpoint": api_endpoint,
@@ -159,7 +160,8 @@ def build_agent_result(action: str, result: dict):
     }
     handoff_task = "\n".join(
         [
-            "bind-local",
+            "bind-hermes",
+            f"profile_name={agent_name}",
             f"agent_name={agent_name}",
             f"agent_id={agent_id}",
             f"api_endpoint={api_endpoint}",
@@ -182,7 +184,7 @@ def build_agent_result(action: str, result: dict):
         "handoff": {
             "target_tool": "grix_admin",
             "task": handoff_task,
-            "bind_local": bind_local_payload,
+            "bind_hermes": bind_hermes_payload,
         },
         "data": data,
     }

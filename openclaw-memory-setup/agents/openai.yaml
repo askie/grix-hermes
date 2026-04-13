@@ -1,7 +1,0 @@
-interface:
-  display_name: "OpenClaw Memory Setup"
-  short_description: "Configure and validate OpenClaw memory."
-  default_prompt: "Use $openclaw-memory-setup to configure and verify OpenClaw memory."
-
-policy:
-  allow_implicit_invocation: true

@@ -61,7 +61,7 @@ node scripts/send.mjs --to <SESSION_ID_OR_ROUTE_SESSION_KEY> --message "..."
 ```bash
 node scripts/send.mjs --to <SESSION_ID_OR_ROUTE_SESSION_KEY> --message "$(node scripts/card-link.mjs conversation --session-id <SESSION_ID> --session-type group --title 测试群)"
 node scripts/card-link.mjs conversation --session-id <SESSION_ID> --session-type group --title 测试群
-node scripts/card-link.mjs user-profile --user-id <AGENT_ID> --nickname writer-openclaw
+node scripts/card-link.mjs user-profile --user-id <AGENT_ID> --nickname writer-hermes
 node scripts/card-link.mjs egg-status --install-id <INSTALL_ID> --status running --step installing --summary 已开始安装
 ```
 

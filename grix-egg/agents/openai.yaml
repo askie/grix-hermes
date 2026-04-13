@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Egg"
-  short_description: "Run Grix installation and acceptance workflows."
-  default_prompt: "Use $grix-egg to run a Grix install flow and finish acceptance in a test group."
+  short_description: "Run Hermes agent installation and acceptance workflows."
+  default_prompt: "Use $grix-egg to run a Hermes-side Grix install flow and finish acceptance in a test group."
 
 policy:
   allow_implicit_invocation: true

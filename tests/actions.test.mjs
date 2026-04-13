@@ -8,7 +8,7 @@ test("admin create_agent creates category by name when needed", async () => {
     async agentInvoke(action, params) {
       calls.push({ action, params });
       if (action === "agent_api_create") {
-        return { id: "9001", agent_name: "writer-openclaw" };
+        return { id: "9001", agent_name: "writer-hermes" };
       }
       if (action === "agent_category_list") {
         return { categories: [] };
@@ -26,7 +26,7 @@ test("admin create_agent creates category by name when needed", async () => {
   const result = await runAdmin(client, {
     accountId: "main",
     action: "create_agent",
-    agentName: "writer-openclaw",
+    agentName: "writer-hermes",
     categoryName: "写作",
     parentCategoryId: "0"
   });

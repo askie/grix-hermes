@@ -7,14 +7,14 @@
 
 - 不修改 Hermes 内核
 - 复用 Hermes 已有的 `terminal` 和 `send_message`
-- 把 Grix / OpenClaw 相关技能做成可单独安装、可 npm 发布、可 GitHub 发布的技能包
+- 把 Grix 相关技能做成可单独安装、可 npm 发布、可 GitHub 发布的 Hermes 技能包
 
 ## 包含内容
 
-- 9 个迁移后的技能
+- 8 个 Hermes 技能
 - 一套共享 Grix WS CLI，给 `grix-query`、`grix-group`、`grix-admin`、`message-unsend` 使用
 - 独立 HTTP 组件，给 `grix-register` 使用
-- OpenClaw 本地运维脚本，给 `openclaw-memory-setup` 使用
+- Hermes profile 绑定和安装编排 helper，给 `grix-admin`、`grix-register`、`grix-egg` 使用
 
 ## 安装
 
@@ -47,6 +47,7 @@ git clone <repo> /path/to/grix-hermes
 如果你希望这组技能和 Hermes 网关不要共用同一只 API agent，可以在
 `~/.hermes/.env` 里额外配置 `GRIX_SKILL_ENDPOINT`、`GRIX_SKILL_AGENT_ID`、
 `GRIX_SKILL_API_KEY`。技能会优先使用这组独立凭证。
+如果 Hermes gateway 也连着 Grix，独立 `GRIX_SKILL_*` 能避免短连接技能调用把 gateway 顶掉后再重连。
 
 ## 命令
 
@@ -85,8 +86,10 @@ bash ./publish.sh --publish
 ## 设计边界
 
 - Grix 查询、群管理、远端 Agent 管理、消息撤回：走 Grix WS 协议
-  这组短连接默认以 `openclaw` 家族声明握手，确保后端放行授权类 WS 命令
+  这组短连接默认会带内部兼容握手，确保后端放行授权类 WS 命令
 - 注册、发验证码、创建首个 API agent：走独立 HTTP 组件
+- 本地 Hermes agent 的创建、覆盖、绑定：走 Hermes `profile`、`.env`、`config.yaml`、`SOUL.md`
+- 技能升级：面向整个 `grix-hermes` 包，可配 Hermes cron 定时执行
 - 发消息、发卡片：优先使用 Hermes 自带 `send_message`
 - 本项目不依赖修改 Hermes 内核，也不要求给 Hermes 增加新 tool
 
@@ -100,4 +103,3 @@ bash ./publish.sh --publish
 - `grix-update`
 - `message-send`
 - `message-unsend`
-- `openclaw-memory-setup`

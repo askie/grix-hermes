@@ -1,7 +1,7 @@
 {
   "name": "@dhf-hermes/grix",
   "version": "0.1.0",
-  "description": "Standalone Hermes skill bundle for Grix and OpenClaw workflows.",
+  "description": "Standalone Hermes skill bundle for Grix workflows.",
   "type": "module",
   "bin": {
     "grix-hermes": "./bin/grix-hermes.mjs"
@@ -18,7 +18,6 @@
     "grix-update",
     "message-send",
     "message-unsend",
-    "openclaw-memory-setup",
     "README.md",
     "LICENSE",
     ".gitignore"
@@ -34,8 +33,7 @@
   "keywords": [
     "hermes",
     "skills",
-    "grix",
-    "openclaw"
+    "grix"
   ],
   "license": "MIT",
   "publishConfig": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create one API agent through grix_auth.py and optionally bind it locally."""
+"""Create one API agent through grix_auth.py and optionally bind it into Hermes."""
 
 from __future__ import annotations
 
@@ -36,16 +36,28 @@ def load_or_create_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create one API agent and continue to local bind.")
+    parser = argparse.ArgumentParser(description="Create one API agent and continue to Hermes bind.")
     parser.add_argument("--access-token", default="")
     parser.add_argument("--agent-name", default="")
     parser.add_argument("--avatar-url", default="")
     parser.add_argument("--base-url", default="https://grix.dhf.pub")
     parser.add_argument("--agent-json-file", default="", help="Use an existing create-api-agent JSON result instead of calling HTTP.")
-    parser.add_argument("--model", default="")
-    parser.add_argument("--openclaw", default="openclaw")
-    parser.add_argument("--openclaw-home", default="")
-    parser.add_argument("--skip-current", action="store_true")
+    parser.add_argument("--profile-name", default="")
+    parser.add_argument("--profile-mode", default="create-or-reuse", choices=["create", "reuse", "create-or-reuse"])
+    parser.add_argument("--clone-from", default="")
+    parser.add_argument("--skill-source-dir", default="")
+    parser.add_argument("--skip-skill-source", action="store_true")
+    parser.add_argument("--account-id", default="")
+    parser.add_argument("--skill-endpoint", default="")
+    parser.add_argument("--skill-agent-id", default="")
+    parser.add_argument("--skill-api-key", default="")
+    parser.add_argument("--skill-account-id", default="")
+    parser.add_argument("--allowed-users", default="")
+    parser.add_argument("--allow-all-users", default="", choices=["", "true", "false"])
+    parser.add_argument("--home-channel", default="")
+    parser.add_argument("--home-channel-name", default="")
+    parser.add_argument("--hermes", default="hermes")
+    parser.add_argument("--node", default="node")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -59,15 +71,39 @@ def main() -> int:
         cmd = [
             sys.executable,
             str(bind_script),
+            "--profile-mode",
+            args.profile_mode,
+            "--hermes",
+            args.hermes,
+            "--node",
+            args.node,
         ]
-        if args.model:
-            cmd.extend(["--model", args.model])
-        if args.openclaw:
-            cmd.extend(["--openclaw", args.openclaw])
-        if args.openclaw_home:
-            cmd.extend(["--openclaw-home", args.openclaw_home])
-        if args.skip_current:
-            cmd.append("--skip-current")
+        if args.profile_name:
+            cmd.extend(["--profile-name", args.profile_name])
+        if args.clone_from:
+            cmd.extend(["--clone-from", args.clone_from])
+        if args.skill_source_dir:
+            cmd.extend(["--skill-source-dir", args.skill_source_dir])
+        if args.skip_skill_source:
+            cmd.append("--skip-skill-source")
+        if args.account_id:
+            cmd.extend(["--account-id", args.account_id])
+        if args.skill_endpoint:
+            cmd.extend(["--skill-endpoint", args.skill_endpoint])
+        if args.skill_agent_id:
+            cmd.extend(["--skill-agent-id", args.skill_agent_id])
+        if args.skill_api_key:
+            cmd.extend(["--skill-api-key", args.skill_api_key])
+        if args.skill_account_id:
+            cmd.extend(["--skill-account-id", args.skill_account_id])
+        if args.allowed_users:
+            cmd.extend(["--allowed-users", args.allowed_users])
+        if args.allow_all_users:
+            cmd.extend(["--allow-all-users", args.allow_all_users])
+        if args.home_channel:
+            cmd.extend(["--home-channel", args.home_channel])
+        if args.home_channel_name:
+            cmd.extend(["--home-channel-name", args.home_channel_name])
         if args.dry_run:
             cmd.append("--dry-run")
         if args.json:
