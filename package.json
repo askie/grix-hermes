@@ -1,10 +1,10 @@
 {
   "name": "@dhf-hermes/grix",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Standalone Hermes skill bundle for Grix workflows.",
   "type": "module",
   "bin": {
-    "grix-hermes": "./bin/grix-hermes.mjs"
+    "grix-hermes": "bin/grix-hermes.mjs"
   },
   "files": [
     "bin",

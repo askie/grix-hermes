@@ -160,6 +160,23 @@ assert_package_identity() {
     fail "unexpected package name: ${package_name} (expected ${PACKAGE_NAME})"
 }
 
+assert_package_bin_metadata() {
+  node <<'NODE'
+const fs = require("node:fs");
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const bin = pkg.bin || {};
+const cliPath = bin["grix-hermes"];
+if (cliPath !== "bin/grix-hermes.mjs") {
+  console.error(`package.json bin.grix-hermes must be "bin/grix-hermes.mjs", got: ${JSON.stringify(cliPath)}`);
+  process.exit(1);
+}
+if (!fs.existsSync(cliPath)) {
+  console.error(`package.json bin.grix-hermes target is missing: ${cliPath}`);
+  process.exit(1);
+}
+NODE
+}
+
 read_current_version() {
   read_package_field version
 }
@@ -447,6 +464,7 @@ main() {
 
   cd "${PROJECT_DIR}"
   assert_package_identity
+  assert_package_bin_metadata
   target_version="$(compute_target_version)"
   target_package_ref="${PACKAGE_NAME}@${target_version}"
   target_tarball="$(compute_tarball_filename "${PACKAGE_NAME}" "${target_version}")"

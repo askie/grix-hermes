@@ -27,3 +27,7 @@ test("manifest data shape is stable", () => {
   assert.equal(manifest.skills.length, 8);
   assert.ok(typeof manifest.install_dir === "string" && manifest.install_dir.length > 0);
 });
+
+test("package.json exposes a publish-safe CLI bin", () => {
+  assert.equal(packageJson.bin["grix-hermes"], "bin/grix-hermes.mjs");
+});
