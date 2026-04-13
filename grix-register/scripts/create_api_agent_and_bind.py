@@ -15,6 +15,7 @@ def load_or_create_payload(args: argparse.Namespace) -> dict[str, Any]:
     if args.agent_json_file:
         return json.loads(Path(args.agent_json_file).read_text(encoding="utf-8"))
 
+    requested_is_main = args.is_main or "true"
     auth_script = Path(__file__).with_name("grix_auth.py")
     cmd = [
         sys.executable,
@@ -26,6 +27,8 @@ def load_or_create_payload(args: argparse.Namespace) -> dict[str, Any]:
         args.access_token,
         "--agent-name",
         args.agent_name,
+        "--is-main",
+        requested_is_main,
     ]
     if args.avatar_url:
         cmd.extend(["--avatar-url", args.avatar_url])
@@ -44,6 +47,7 @@ def main() -> int:
     parser.add_argument("--agent-json-file", default="", help="Use an existing create-api-agent JSON result instead of calling HTTP.")
     parser.add_argument("--profile-name", default="")
     parser.add_argument("--profile-mode", default="create-or-reuse", choices=["create", "reuse", "create-or-reuse"])
+    parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     parser.add_argument("--clone-from", default="")
     parser.add_argument("--skill-source-dir", default="")
     parser.add_argument("--skip-skill-source", action="store_true")
@@ -78,6 +82,9 @@ def main() -> int:
             "--node",
             args.node,
         ]
+        bind_is_main = args.is_main or ("" if args.agent_json_file else "true")
+        if bind_is_main:
+            cmd.extend(["--is-main", bind_is_main])
         if args.profile_name:
             cmd.extend(["--profile-name", args.profile_name])
         if args.clone_from:

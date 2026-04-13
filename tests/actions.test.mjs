@@ -32,6 +32,7 @@ test("admin create_agent creates category by name when needed", async () => {
   });
 
   assert.equal(result.createdAgent.id, "9001");
+  assert.equal(result.requestedIsMain, false);
   assert.equal(result.category.id, "55");
   assert.equal(result.assignment.ok, true);
   assert.deepEqual(calls.map((item) => item.action), [

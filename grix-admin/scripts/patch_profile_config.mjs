@@ -4,6 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 
+const RESTRICTED_MANAGEMENT_SKILLS = [
+  "grix-admin",
+  "grix-register",
+  "grix-update",
+  "grix-egg"
+];
+
 function parseArgs(argv) {
   const flags = { externalDirs: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -15,6 +22,11 @@ function parseArgs(argv) {
     }
     if (token === "--external-dir" && argv[index + 1]) {
       flags.externalDirs.push(argv[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (token === "--management-policy" && argv[index + 1]) {
+      flags.managementPolicy = argv[index + 1];
       index += 1;
       continue;
     }
@@ -40,6 +52,16 @@ function normalizeExternalDirs(value) {
   return [];
 }
 
+function normalizeSkillList(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 function looksLikeGrixHermesRoot(candidate) {
   return (
     fs.existsSync(path.join(candidate, "bin", "grix-hermes.mjs"))
@@ -51,6 +73,23 @@ function looksLikeGrixHermesRoot(candidate) {
 function isManagedGrixHermesPath(candidate) {
   const base = path.basename(candidate);
   return base.startsWith("grix-hermes") || looksLikeGrixHermesRoot(candidate);
+}
+
+function applyManagementPolicy(currentDisabledSkills, policy) {
+  if (policy === "preserve") {
+    return [...currentDisabledSkills];
+  }
+  const nextDisabledSkills = currentDisabledSkills.filter(
+    (skillName) => !RESTRICTED_MANAGEMENT_SKILLS.includes(skillName)
+  );
+  if (policy === "restricted") {
+    for (const skillName of RESTRICTED_MANAGEMENT_SKILLS) {
+      if (!nextDisabledSkills.includes(skillName)) {
+        nextDisabledSkills.push(skillName);
+      }
+    }
+  }
+  return nextDisabledSkills;
 }
 
 const flags = parseArgs(process.argv.slice(2));
@@ -81,7 +120,14 @@ if (!config.skills || typeof config.skills !== "object" || Array.isArray(config.
   config.skills = {};
 }
 
+const managementPolicy = String(flags.managementPolicy || "preserve").trim() || "preserve";
+if (!["preserve", "main", "restricted"].includes(managementPolicy)) {
+  console.error(JSON.stringify({ ok: false, error: `Unsupported --management-policy: ${managementPolicy}` }, null, 2));
+  process.exit(1);
+}
+
 const currentExternalDirs = normalizeExternalDirs(config.skills.external_dirs);
+const currentDisabledSkills = normalizeSkillList(config.skills.disabled);
 const requestedSet = new Set(requestedExternalDirs);
 const nextExternalDirs = currentExternalDirs.filter((entry) => {
   const resolved = path.resolve(entry);
@@ -95,14 +141,21 @@ for (const externalDir of requestedExternalDirs) {
     nextExternalDirs.push(externalDir);
   }
 }
+const nextDisabledSkills = applyManagementPolicy(currentDisabledSkills, managementPolicy);
 config.skills.external_dirs = nextExternalDirs;
+config.skills.disabled = nextDisabledSkills;
 
 const payload = {
   ok: true,
   dry_run: Boolean(flags.dryRun),
-  changed: JSON.stringify(currentExternalDirs) !== JSON.stringify(nextExternalDirs),
+  changed: (
+    JSON.stringify(currentExternalDirs) !== JSON.stringify(nextExternalDirs)
+    || JSON.stringify(currentDisabledSkills) !== JSON.stringify(nextDisabledSkills)
+  ),
   config_path: configPath,
-  external_dirs: nextExternalDirs
+  external_dirs: nextExternalDirs,
+  management_policy: managementPolicy,
+  disabled_skills: nextDisabledSkills
 };
 
 if (!flags.dryRun) {

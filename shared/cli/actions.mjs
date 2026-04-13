@@ -270,6 +270,7 @@ export async function runAdmin(client, options) {
     ok: true,
     accountId: options.accountId,
     action,
+    requestedIsMain: createPayload.is_main,
     createdAgent,
     category,
     assignment

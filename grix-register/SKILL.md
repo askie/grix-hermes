@@ -35,6 +35,7 @@ python3 scripts/grix_auth.py create-api-agent --access-token <TOKEN> --agent-nam
    - `agent_id`
    - `api_endpoint`
    - `api_key`
+   - `is_main`
    - 如需独立技能连接，再补 `skill_endpoint` / `skill_agent_id` / `skill_api_key`
 5. 继续执行 [grix-admin](../grix-admin/SKILL.md) 的 `bind-hermes`
 
@@ -45,6 +46,7 @@ python3 scripts/create_api_agent_and_bind.py \
   --access-token <TOKEN> \
   --agent-name <NAME> \
   --profile-name <PROFILE_NAME> \
+  --is-main true \
   --skill-endpoint <SKILL_WS_URL> \
   --skill-agent-id <SKILL_AGENT_ID> \
   --skill-api-key <SKILL_API_KEY> \
@@ -65,6 +67,7 @@ python3 scripts/create_api_agent_and_bind.py \
 
 - 不要求用户自己开浏览器
 - HTTP 只用于注册、登录、验证码、首个 API agent 创建
+- `create-api-agent` 默认按主 agent 创建，也会把“主 agent 保留全部技能”这件事继续交给 `grix-admin`
 - 本地 Hermes 绑定不在这个技能里手工拼，创建完就继续交给 `grix-admin`
 - 如果要写 `SOUL.md` 或覆盖已有 Hermes agent，继续交给 `grix-egg`
 

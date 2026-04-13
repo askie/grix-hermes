@@ -92,11 +92,30 @@ def run_command(cmd: list[str], *, check: bool = True, env: dict[str, str] | Non
     return result
 
 
+def parse_optional_bool(value: Any) -> bool | None:
+    normalized = clean_text(value).lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
+
+
+def resolve_management_policy(profile_exists: bool, is_main: bool | None) -> str:
+    if is_main is True:
+        return "main"
+    if is_main is False:
+        return "restricted"
+    return "preserve" if profile_exists else "restricted"
+
+
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     profile_name = clean_text(args.profile_name) or args.agent_name
     profile_dir = resolve_profile_dir(profile_name)
     profile_exists = profile_dir.exists()
     profile_mode = args.profile_mode
+    is_main = parse_optional_bool(args.is_main)
+    management_policy = resolve_management_policy(profile_exists, is_main)
     skill_source_dir = "" if args.skip_skill_source else str(
         Path(clean_text(args.skill_source_dir) or Path(__file__).resolve().parents[2]).resolve()
     )
@@ -168,6 +187,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             str(config_path),
             "--external-dir",
             skill_source_dir,
+            "--management-policy",
+            management_policy,
             "--json",
         ])
 
@@ -178,6 +199,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "profile_mode": profile_mode,
         "agent_name": args.agent_name,
         "agent_id": args.agent_id,
+        "is_main": is_main,
+        "management_policy": management_policy,
         "api_endpoint": args.api_endpoint,
         "skill_source_dir": skill_source_dir,
         "env_path": str(env_path),
@@ -196,6 +219,7 @@ def main() -> int:
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--profile-name", default="")
     parser.add_argument("--profile-mode", choices=["create", "reuse", "create-or-reuse"], default="create-or-reuse")
+    parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     parser.add_argument("--clone-from", default="")
     parser.add_argument("--skill-source-dir", default="")
     parser.add_argument("--skip-skill-source", action="store_true")

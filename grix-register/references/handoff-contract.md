@@ -9,6 +9,7 @@
 - `agent_id`
 - `api_endpoint`
 - `api_key`
+- `is_main`
 - 可选：`skill_endpoint`
 - 可选：`skill_agent_id`
 - 可选：`skill_api_key`
@@ -23,6 +24,7 @@ python3 ../grix-admin/scripts/bind_local.py \
   --agent-id <AGENT_ID> \
   --api-endpoint <WS_URL> \
   --api-key <API_KEY> \
+  --is-main true|false \
   --skill-endpoint <SKILL_WS_URL> \
   --skill-agent-id <SKILL_AGENT_ID> \
   --skill-api-key <SKILL_API_KEY>

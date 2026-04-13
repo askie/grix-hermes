@@ -129,6 +129,17 @@ def print_json(payload):
     sys.stdout.write("\n")
 
 
+def parse_optional_bool(value, default=None):
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return default
+
+
 def build_auth_result(action: str, result: dict, base_url: str):
     data = result.get("data") or {}
     user = data.get("user") or {}
@@ -145,7 +156,7 @@ def build_auth_result(action: str, result: dict, base_url: str):
     }
 
 
-def build_agent_result(action: str, result: dict):
+def build_agent_result(action: str, result: dict, is_main: bool):
     data = result.get("data") or {}
     agent_id = str(data.get("id", "")).strip()
     api_endpoint = str(data.get("api_endpoint", "")).strip()
@@ -157,6 +168,7 @@ def build_agent_result(action: str, result: dict):
         "agent_id": agent_id,
         "api_endpoint": api_endpoint,
         "api_key": api_key,
+        "is_main": bool(is_main),
     }
     handoff_task = "\n".join(
         [
@@ -166,6 +178,7 @@ def build_agent_result(action: str, result: dict):
             f"agent_id={agent_id}",
             f"api_endpoint={api_endpoint}",
             f"api_key={api_key}",
+            f"is_main={'true' if is_main else 'false'}",
             "do_not_create_remote_agent=true",
         ]
     )
@@ -176,6 +189,7 @@ def build_agent_result(action: str, result: dict):
         "api_base_url": result["api_base_url"],
         "agent_id": agent_id,
         "agent_name": agent_name,
+        "is_main": bool(is_main),
         "provider_type": data.get("provider_type", 0),
         "api_endpoint": api_endpoint,
         "api_key": api_key,
@@ -205,11 +219,11 @@ def login_with_credentials(base_url: str, account: str, password: str, device_id
     return build_auth_result("login", result, base_url)
 
 
-def create_api_agent(base_url: str, access_token: str, agent_name: str, avatar_url: str):
+def create_api_agent(base_url: str, access_token: str, agent_name: str, avatar_url: str, is_main: bool):
     request_body = {
         "agent_name": agent_name.strip(),
         "provider_type": 3,
-        "is_main": True,
+        "is_main": bool(is_main),
     }
     normalized_avatar_url = (avatar_url or "").strip()
     if normalized_avatar_url:
@@ -224,7 +238,7 @@ def create_api_agent(base_url: str, access_token: str, agent_name: str, avatar_u
             "Authorization": f"Bearer {access_token.strip()}",
         },
     )
-    return build_agent_result("create-api-agent", result)
+    return build_agent_result("create-api-agent", result, bool(is_main))
 
 
 def list_agents(base_url: str, access_token: str):
@@ -243,7 +257,7 @@ def list_agents(base_url: str, access_token: str):
     return items
 
 
-def rotate_api_agent_key(base_url: str, access_token: str, agent_id: str):
+def rotate_api_agent_key(base_url: str, access_token: str, agent_id: str, is_main: bool):
     result = request_json(
         "POST",
         f"/agents/{str(agent_id).strip()}/api/key/rotate",
@@ -253,7 +267,7 @@ def rotate_api_agent_key(base_url: str, access_token: str, agent_id: str):
             "Authorization": f"Bearer {access_token.strip()}",
         },
     )
-    return build_agent_result("rotate-api-agent-key", result)
+    return build_agent_result("rotate-api-agent-key", result, bool(is_main))
 
 
 def find_existing_api_agent(agents, agent_name: str):
@@ -281,6 +295,7 @@ def create_or_reuse_api_agent(
     avatar_url: str,
     prefer_existing: bool,
     rotate_on_reuse: bool,
+    is_main: bool,
 ):
     if prefer_existing:
         agents = list_agents(base_url, access_token)
@@ -291,12 +306,17 @@ def create_or_reuse_api_agent(
                     "existing provider_type=3 agent found but rotate-on-reuse is disabled; cannot obtain api_key safely",
                     payload={"existing_agent": existing},
                 )
-            rotated = rotate_api_agent_key(base_url, access_token, str(existing.get("id", "")).strip())
+            rotated = rotate_api_agent_key(
+                base_url,
+                access_token,
+                str(existing.get("id", "")).strip(),
+                parse_optional_bool(existing.get("is_main"), bool(is_main)),
+            )
             rotated["source"] = "reused_existing_agent_with_rotated_key"
             rotated["existing_agent"] = existing
             return rotated
 
-    created = create_api_agent(base_url, access_token, agent_name, avatar_url)
+    created = create_api_agent(base_url, access_token, agent_name, avatar_url, bool(is_main))
     created["source"] = "created_new_agent"
     return created
 
@@ -392,6 +412,7 @@ def handle_login(args):
 
 
 def handle_create_api_agent(args):
+    requested_is_main = parse_optional_bool(args.is_main, True)
     print_json(
         create_or_reuse_api_agent(
             args.base_url,
@@ -400,6 +421,7 @@ def handle_create_api_agent(args):
             args.avatar_url,
             not bool(args.no_reuse_existing_agent),
             not bool(args.no_rotate_key_on_reuse),
+            bool(requested_is_main),
         )
     )
 
@@ -448,6 +470,7 @@ def build_parser():
     create_api_agent_parser.add_argument("--access-token", required=True)
     create_api_agent_parser.add_argument("--agent-name", required=True)
     create_api_agent_parser.add_argument("--avatar-url", default="")
+    create_api_agent_parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     create_api_agent_parser.add_argument("--no-reuse-existing-agent", action="store_true")
     create_api_agent_parser.add_argument("--no-rotate-key-on-reuse", action="store_true")
     create_api_agent_parser.set_defaults(handler=handle_create_api_agent)

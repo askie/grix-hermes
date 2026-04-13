@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,11 +68,77 @@ test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
   assert.equal(payload.ok, true);
   assert.equal(payload.agent_name, "demo-agent");
   assert.equal(payload.profile_name, "demo-agent");
+  assert.equal(payload.management_policy, "restricted");
   assert.equal(payload.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
   assert.equal(payload.env_updates.GRIX_SKILL_AGENT_ID, "9002");
   assert.equal(payload.env_updates.GRIX_SKILL_API_KEY, "ak_skill");
   assert.equal(Array.isArray(payload.commands), true);
   assert.ok(payload.commands.length >= 1);
+});
+
+test("grix-admin patch_profile_config applies main and restricted policies", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-config-"));
+  const configPath = path.join(tempDir, "config.yaml");
+  fs.writeFileSync(
+    configPath,
+    [
+      "skills:",
+      "  disabled:",
+      "    - custom-skill",
+      "    - grix-admin",
+      "  external_dirs:",
+      "    - /old/grix-hermes",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  try {
+    const mainResult = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "grix-admin/scripts/patch_profile_config.mjs"),
+        "--config",
+        configPath,
+        "--external-dir",
+        root,
+        "--management-policy",
+        "main",
+        "--json"
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(mainResult.status, 0, mainResult.stderr);
+    const mainPayload = JSON.parse(mainResult.stdout);
+    assert.deepEqual(mainPayload.external_dirs, [root]);
+    assert.deepEqual(mainPayload.disabled_skills, ["custom-skill"]);
+
+    const restrictedResult = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "grix-admin/scripts/patch_profile_config.mjs"),
+        "--config",
+        configPath,
+        "--external-dir",
+        root,
+        "--management-policy",
+        "restricted",
+        "--json"
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(restrictedResult.status, 0, restrictedResult.stderr);
+    const restrictedPayload = JSON.parse(restrictedResult.stdout);
+    assert.deepEqual(restrictedPayload.disabled_skills, [
+      "custom-skill",
+      "grix-admin",
+      "grix-register",
+      "grix-update",
+      "grix-egg"
+    ]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("grix-update dry-run builds update plan", () => {
@@ -97,6 +164,7 @@ test("grix-update dry-run builds update plan", () => {
 
 test("grix-admin bind_from_json forwards remote result", () => {
   const payload = JSON.stringify({
+    requestedIsMain: true,
     createdAgent: {
       id: "9001",
       agent_name: "demo-agent",
@@ -119,6 +187,7 @@ test("grix-admin bind_from_json forwards remote result", () => {
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.agent_name, "demo-agent");
+  assert.equal(parsed.management_policy, "main");
 });
 
 test("grix-register create_api_agent_and_bind can reuse existing json", () => {
@@ -139,6 +208,8 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
         fixturePath,
         "--profile-name",
         "demo-agent",
+        "--is-main",
+        "true",
         "--skill-endpoint",
         "wss://example/ws-skill",
         "--skill-agent-id",
@@ -154,6 +225,7 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
     const parsed = JSON.parse(result.stdout);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.bind_result.agent_name, "demo-agent");
+    assert.equal(parsed.bind_result.management_policy, "main");
     assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
     assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_AGENT_ID, "9002");
     assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_API_KEY, "ak_skill");

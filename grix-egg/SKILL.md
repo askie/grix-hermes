@@ -49,6 +49,8 @@ node scripts/card-link.mjs conversation --session-id <SESSION_ID> --session-type
 4. 下载或落位安装内容
 5. 写入或替换目标 profile 的 `SOUL.md`
 6. 调用 `grix-admin bind-hermes`
+   - 目标就是主 agent 时，显式传 `--is-main true`
+   - 其他 agent 默认传 `--is-main false`
 7. 如需自动更新，补 `grix-update` 的 Hermes cron
 8. 创建测试群并拿到准确 `session_id`
 9. 回当前私聊单独发送测试群会话卡片
@@ -61,6 +63,8 @@ node scripts/card-link.mjs conversation --session-id <SESSION_ID> --session-type
 3. 下载或替换安装内容
 4. 写入新的 `SOUL.md`
 5. 调用 `grix-admin bind-hermes` 刷新凭证和技能映射
+   - 主 agent 保留全部技能
+   - 其他 agent 默认禁用 `grix-admin`、`grix-register`、`grix-update`、`grix-egg`
 6. 如需自动更新，校验或更新 `grix-update` cron
 7. 创建测试群并做身份验收
 

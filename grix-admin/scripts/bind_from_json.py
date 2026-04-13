@@ -28,6 +28,22 @@ def as_record(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def clean_bool_text(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    normalized = clean_text(value).lower()
+    if normalized in {"true", "false"}:
+        return normalized
+    return ""
+
+
+def first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
     handoff = as_record(payload.get("handoff"))
     bind_hermes = as_record(handoff.get("bind_hermes"))
@@ -38,6 +54,7 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
             "agent_id": clean_text(bind_hermes.get("agent_id")),
             "api_endpoint": clean_text(bind_hermes.get("api_endpoint")),
             "api_key": clean_text(bind_hermes.get("api_key")),
+            "is_main": clean_bool_text(bind_hermes.get("is_main")),
         }
 
     bind_local = as_record(handoff.get("bind_local"))
@@ -48,6 +65,7 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
             "agent_id": clean_text(bind_local.get("agent_id")),
             "api_endpoint": clean_text(bind_local.get("api_endpoint")),
             "api_key": clean_text(bind_local.get("api_key")),
+            "is_main": clean_bool_text(bind_local.get("is_main")),
         }
 
     created_agent = as_record(payload.get("createdAgent"))
@@ -58,6 +76,14 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
             "agent_id": clean_text(created_agent.get("id") or created_agent.get("agent_id")),
             "api_endpoint": clean_text(created_agent.get("api_endpoint") or payload.get("api_endpoint")),
             "api_key": clean_text(created_agent.get("api_key") or payload.get("api_key")),
+            "is_main": clean_bool_text(
+                first_present(
+                    created_agent.get("is_main"),
+                    payload.get("requestedIsMain"),
+                    payload.get("requested_is_main"),
+                    payload.get("is_main"),
+                )
+            ),
         }
 
     return {
@@ -66,6 +92,7 @@ def extract_bind_fields(payload: dict[str, Any]) -> dict[str, str]:
         "agent_id": clean_text(payload.get("agent_id") or payload.get("id")),
         "api_endpoint": clean_text(payload.get("api_endpoint")),
         "api_key": clean_text(payload.get("api_key")),
+        "is_main": clean_bool_text(payload.get("is_main")),
     }
 
 
@@ -74,6 +101,7 @@ def main() -> int:
     parser.add_argument("--from-file", default="")
     parser.add_argument("--profile-name", default="")
     parser.add_argument("--profile-mode", default="create-or-reuse", choices=["create", "reuse", "create-or-reuse"])
+    parser.add_argument("--is-main", default="", choices=["", "true", "false"])
     parser.add_argument("--clone-from", default="")
     parser.add_argument("--skill-source-dir", default="")
     parser.add_argument("--skip-skill-source", action="store_true")
@@ -97,7 +125,7 @@ def main() -> int:
         bind_fields = extract_bind_fields(payload)
         if not bind_fields.get("profile_name"):
             bind_fields["profile_name"] = bind_fields.get("agent_name", "")
-        missing = [key for key, value in bind_fields.items() if not value]
+        missing = [key for key in ["profile_name", "agent_name", "agent_id", "api_endpoint", "api_key"] if not bind_fields.get(key)]
         if missing:
             raise RuntimeError(f"Missing bind-local fields: {', '.join(missing)}")
         bind_script = Path(__file__).with_name("bind_local.py")
@@ -122,6 +150,9 @@ def main() -> int:
         profile_name = args.profile_name or bind_fields["profile_name"]
         if profile_name:
             cmd.extend(["--profile-name", profile_name])
+        is_main = clean_bool_text(args.is_main) or bind_fields.get("is_main", "")
+        if is_main:
+            cmd.extend(["--is-main", is_main])
         if args.clone_from:
             cmd.extend(["--clone-from", args.clone_from])
         if args.skill_source_dir:

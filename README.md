@@ -44,6 +44,16 @@ git clone <repo> /path/to/grix-hermes
 1. 直接把仓库根目录作为 `skills.external_dirs`
 2. 执行 `node ./bin/grix-hermes.mjs install --dest <目标目录>`
 
+推荐主线是第 1 种：共享一份 `grix-hermes` 代码目录，让多个 Hermes profile 一起映射它。
+这样升级一次代码，所有 profile 都会一起生效；每个 profile 自己只保留独立的 `.env`、`config.yaml`、`SOUL.md`。
+
+在这条主线下，默认技能策略是：
+
+- 主 agent：保留全部 8 个技能
+- 其他 agent：默认禁用 `grix-admin`、`grix-register`、`grix-update`、`grix-egg`
+
+这个默认策略会在绑定 Hermes profile 时自动写入 `config.yaml` 的 `skills.disabled`。
+
 如果你希望这组技能和 Hermes 网关不要共用同一只 API agent，可以在
 `~/.hermes/.env` 里额外配置 `GRIX_SKILL_ENDPOINT`、`GRIX_SKILL_AGENT_ID`、
 `GRIX_SKILL_API_KEY`。技能会优先使用这组独立凭证。
