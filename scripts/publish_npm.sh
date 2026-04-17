@@ -165,8 +165,8 @@ const fs = require("node:fs");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const bin = pkg.bin || {};
 const cliPath = bin["grix-hermes"];
-if (cliPath !== "bin/grix-hermes.mjs") {
-  console.error(`package.json bin.grix-hermes must be "bin/grix-hermes.mjs", got: ${JSON.stringify(cliPath)}`);
+if (cliPath !== "bin/grix-hermes.js") {
+  console.error(`package.json bin.grix-hermes must be "bin/grix-hermes.js", got: ${JSON.stringify(cliPath)}`);
   process.exit(1);
 }
 if (!fs.existsSync(cliPath)) {
@@ -281,9 +281,9 @@ const required = [
   "LICENSE",
   "README.md",
   "package.json",
-  "bin/grix-hermes.mjs",
-  "lib/manifest.mjs",
-  "shared/cli/grix-hermes.mjs",
+  "bin/grix-hermes.js",
+  "lib/manifest.js",
+  "shared/cli/grix-hermes.js",
   "grix-admin/SKILL.md",
   "grix-egg/SKILL.md",
   "grix-group/SKILL.md",
