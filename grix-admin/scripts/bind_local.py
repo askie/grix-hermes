@@ -169,28 +169,16 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         if clone_from:
             create_cmd.extend(["--clone-from", clone_from])
 
-    skill_endpoint = clean_text(args.skill_endpoint) or args.api_endpoint
-    skill_agent_id = clean_text(args.skill_agent_id) or args.agent_id
-    skill_api_key = clean_text(args.skill_api_key) or args.api_key
-    skill_account_id = clean_text(args.skill_account_id)
-
     env_updates = {
         "GRIX_ENDPOINT": args.api_endpoint,
         "GRIX_AGENT_ID": args.agent_id,
         "GRIX_API_KEY": args.api_key,
-        "GRIX_SKILL_ENDPOINT": skill_endpoint,
-        "GRIX_SKILL_AGENT_ID": skill_agent_id,
-        "GRIX_SKILL_API_KEY": skill_api_key,
     }
     env_removals: set[str] = set()
 
     account_id = clean_text(args.account_id)
     if account_id:
         env_updates["GRIX_ACCOUNT_ID"] = account_id
-    if skill_account_id:
-        env_updates["GRIX_SKILL_ACCOUNT_ID"] = skill_account_id
-    elif account_id:
-        env_updates["GRIX_SKILL_ACCOUNT_ID"] = account_id
 
     allowed_users = clean_text(args.allowed_users)
     allow_all_users = clean_text(args.allow_all_users).lower()
@@ -259,10 +247,6 @@ def main() -> int:
     parser.add_argument("--clone-from", default="")
     parser.add_argument("--install-dir", default="")
     parser.add_argument("--account-id", default="")
-    parser.add_argument("--skill-endpoint", default="")
-    parser.add_argument("--skill-agent-id", default="")
-    parser.add_argument("--skill-api-key", default="")
-    parser.add_argument("--skill-account-id", default="")
     parser.add_argument("--allowed-users", default="")
     parser.add_argument("--allow-all-users", default="", choices=["", "true", "false"])
     parser.add_argument("--home-channel", default="")

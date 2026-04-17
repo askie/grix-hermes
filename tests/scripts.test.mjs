@@ -166,12 +166,6 @@ test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
       "wss://example/ws",
       "--api-key",
       "ak_test",
-      "--skill-endpoint",
-      "wss://example/ws-skill",
-      "--skill-agent-id",
-      "9002",
-      "--skill-api-key",
-      "ak_skill",
       "--profile-name",
       "demo-agent",
       "--dry-run",
@@ -193,9 +187,9 @@ test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
     assert.equal(payload.profile_name, "demo-agent");
     assert.equal(payload.management_policy, "restricted");
     assert.equal(payload.install_dir, path.join(resolvedHermesHome, "skills", "grix-hermes"));
-    assert.equal(payload.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
-    assert.equal(payload.env_updates.GRIX_SKILL_AGENT_ID, "9002");
-    assert.equal(payload.env_updates.GRIX_SKILL_API_KEY, "ak_skill");
+    assert.equal(payload.env_updates.GRIX_ENDPOINT, "wss://example/ws");
+    assert.equal(payload.env_updates.GRIX_AGENT_ID, "9001");
+    assert.equal(payload.env_updates.GRIX_API_KEY, "ak_test");
     assert.equal(Array.isArray(payload.commands), true);
     assert.ok(payload.commands.length >= 1);
     assert.equal(payload.commands.at(-1).includes(path.join(resolvedHermesHome, "skills", "grix-hermes")), true);
@@ -439,12 +433,6 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
         "demo-agent",
         "--is-main",
         "true",
-        "--skill-endpoint",
-        "wss://example/ws-skill",
-        "--skill-agent-id",
-        "9002",
-        "--skill-api-key",
-        "ak_skill",
         "--dry-run",
         "--json"
       ],
@@ -455,9 +443,9 @@ test("grix-register create_api_agent_and_bind can reuse existing json", () => {
     assert.equal(parsed.ok, true);
     assert.equal(parsed.bind_result.agent_name, "demo-agent");
     assert.equal(parsed.bind_result.management_policy, "main");
-    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_ENDPOINT, "wss://example/ws-skill");
-    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_AGENT_ID, "9002");
-    assert.equal(parsed.bind_result.env_updates.GRIX_SKILL_API_KEY, "ak_skill");
+    assert.equal(parsed.bind_result.env_updates.GRIX_ENDPOINT, "wss://example/ws");
+    assert.equal(parsed.bind_result.env_updates.GRIX_AGENT_ID, "9001");
+    assert.equal(parsed.bind_result.env_updates.GRIX_API_KEY, "ak_test");
   } finally {
     fs.rmSync(fixturePath, { force: true });
   }

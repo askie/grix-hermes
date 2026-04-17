@@ -105,10 +105,6 @@ def main() -> int:
     parser.add_argument("--clone-from", default="")
     parser.add_argument("--install-dir", default="")
     parser.add_argument("--account-id", default="")
-    parser.add_argument("--skill-endpoint", default="")
-    parser.add_argument("--skill-agent-id", default="")
-    parser.add_argument("--skill-api-key", default="")
-    parser.add_argument("--skill-account-id", default="")
     parser.add_argument("--allowed-users", default="")
     parser.add_argument("--allow-all-users", default="", choices=["", "true", "false"])
     parser.add_argument("--home-channel", default="")
@@ -158,14 +154,6 @@ def main() -> int:
             cmd.extend(["--install-dir", args.install_dir])
         if args.account_id:
             cmd.extend(["--account-id", args.account_id])
-        if args.skill_endpoint:
-            cmd.extend(["--skill-endpoint", args.skill_endpoint])
-        if args.skill_agent_id:
-            cmd.extend(["--skill-agent-id", args.skill_agent_id])
-        if args.skill_api_key:
-            cmd.extend(["--skill-api-key", args.skill_api_key])
-        if args.skill_account_id:
-            cmd.extend(["--skill-account-id", args.skill_account_id])
         if args.allowed_users:
             cmd.extend(["--allowed-users", args.allowed_users])
         if args.allow_all_users:

@@ -52,7 +52,7 @@ test("runtime config defaults to authorized ws handshake", () => {
   }
 });
 
-test("runtime config prefers skill-specific grix credentials", () => {
+test("runtime config uses the single grix credential set", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-"));
   fs.writeFileSync(
     path.join(tempDir, ".env"),
@@ -60,18 +60,17 @@ test("runtime config prefers skill-specific grix credentials", () => {
       "GRIX_ENDPOINT=wss://default/ws",
       "GRIX_AGENT_ID=9001",
       "GRIX_API_KEY=default-key",
-      "GRIX_SKILL_ENDPOINT=wss://skill/ws",
-      "GRIX_SKILL_AGENT_ID=9901",
-      "GRIX_SKILL_API_KEY=skill-key"
+      "GRIX_ACCOUNT_ID=acct-main"
     ].join("\n") + "\n"
   );
   const previous = process.env.HERMES_HOME;
   process.env.HERMES_HOME = tempDir;
   try {
     const runtime = resolveRuntimeConfig();
-    assert.equal(runtime.connection.endpoint, "wss://skill/ws");
-    assert.equal(runtime.connection.agentId, "9901");
-    assert.equal(runtime.connection.apiKey, "skill-key");
+    assert.equal(runtime.connection.endpoint, "wss://default/ws");
+    assert.equal(runtime.connection.agentId, "9001");
+    assert.equal(runtime.connection.apiKey, "default-key");
+    assert.equal(runtime.connection.accountId, "acct-main");
   } finally {
     if (previous === undefined) {
       delete process.env.HERMES_HOME;

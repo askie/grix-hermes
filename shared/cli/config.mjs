@@ -112,31 +112,23 @@ export function resolveRuntimeConfig(overrides = {}) {
 
   const endpoint = firstNonEmpty(
     overrides.endpoint,
-    env.GRIX_SKILL_ENDPOINT,
     env.GRIX_ENDPOINT,
-    extra.skill_endpoint,
     extra.endpoint
   );
   const agentId = firstNonEmpty(
     overrides.agentId,
-    env.GRIX_SKILL_AGENT_ID,
     env.GRIX_AGENT_ID,
-    extra.skill_agent_id,
     extra.agent_id
   );
   const apiKey = firstNonEmpty(
     overrides.apiKey,
-    env.GRIX_SKILL_API_KEY,
     env.GRIX_API_KEY,
-    extra.skill_api_key,
     grix?.api_key,
     grix?.token
   );
   const accountId = firstNonEmpty(
     overrides.accountId,
-    env.GRIX_SKILL_ACCOUNT_ID,
     env.GRIX_ACCOUNT_ID,
-    extra.skill_account_id,
     extra.account_id
   ) || "main";
 

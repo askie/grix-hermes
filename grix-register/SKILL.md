@@ -36,7 +36,6 @@ python3 scripts/grix_auth.py create-api-agent --access-token <TOKEN> --agent-nam
    - `api_endpoint`
    - `api_key`
    - `is_main`
-   - 如需独立技能连接，再补 `skill_endpoint` / `skill_agent_id` / `skill_api_key`
 5. 继续执行 [grix-admin](../grix-admin/SKILL.md) 的 `bind-hermes`
 
 如果你想把“创建 API agent + Hermes 绑定”一次跑完，优先用：
@@ -47,9 +46,6 @@ python3 scripts/create_api_agent_and_bind.py \
   --agent-name <NAME> \
   --profile-name <PROFILE_NAME> \
   --is-main true \
-  --skill-endpoint <SKILL_WS_URL> \
-  --skill-agent-id <SKILL_AGENT_ID> \
-  --skill-api-key <SKILL_API_KEY> \
   --json
 ```
 

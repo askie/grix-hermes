@@ -132,10 +132,6 @@ def merge_bind_options(payload: dict[str, Any], profile_name: str, is_main_text:
         "profile_mode": clean_text(bind.get("profile_mode")) or clean_text(payload.get("profile_mode")) or "create-or-reuse",
         "clone_from": clean_text(bind.get("clone_from")) or clean_text(payload.get("clone_from")),
         "account_id": clean_text(bind.get("account_id")) or clean_text(payload.get("account_id")),
-        "skill_endpoint": clean_text(bind.get("skill_endpoint")) or clean_text(payload.get("skill_endpoint")),
-        "skill_agent_id": clean_text(bind.get("skill_agent_id")) or clean_text(payload.get("skill_agent_id")),
-        "skill_api_key": clean_text(bind.get("skill_api_key")) or clean_text(payload.get("skill_api_key")),
-        "skill_account_id": clean_text(bind.get("skill_account_id")) or clean_text(payload.get("skill_account_id")),
         "allowed_users": clean_text(bind.get("allowed_users")) or clean_text(payload.get("allowed_users")),
         "allow_all_users": clean_bool_text(bind.get("allow_all_users") or payload.get("allow_all_users")),
         "home_channel": clean_text(bind.get("home_channel")) or clean_text(payload.get("home_channel")),
@@ -213,10 +209,6 @@ def build_bind_step(
         append_bool_flag(cmd, "--is-main", bind_options["is_main"] or register.get("is_main"))
         append_text_flag(cmd, "--clone-from", bind_options["clone_from"])
         append_text_flag(cmd, "--account-id", bind_options["account_id"])
-        append_text_flag(cmd, "--skill-endpoint", bind_options["skill_endpoint"])
-        append_text_flag(cmd, "--skill-agent-id", bind_options["skill_agent_id"])
-        append_text_flag(cmd, "--skill-api-key", bind_options["skill_api_key"])
-        append_text_flag(cmd, "--skill-account-id", bind_options["skill_account_id"])
         append_text_flag(cmd, "--allowed-users", bind_options["allowed_users"])
         append_bool_flag(cmd, "--allow-all-users", bind_options["allow_all_users"])
         append_text_flag(cmd, "--home-channel", bind_options["home_channel"])
@@ -252,10 +244,6 @@ def build_bind_step(
         append_bool_flag(bind_cmd, "--is-main", bind_options["is_main"])
         append_text_flag(bind_cmd, "--clone-from", bind_options["clone_from"])
         append_text_flag(bind_cmd, "--account-id", bind_options["account_id"])
-        append_text_flag(bind_cmd, "--skill-endpoint", bind_options["skill_endpoint"])
-        append_text_flag(bind_cmd, "--skill-agent-id", bind_options["skill_agent_id"])
-        append_text_flag(bind_cmd, "--skill-api-key", bind_options["skill_api_key"])
-        append_text_flag(bind_cmd, "--skill-account-id", bind_options["skill_account_id"])
         append_text_flag(bind_cmd, "--allowed-users", bind_options["allowed_users"])
         append_bool_flag(bind_cmd, "--allow-all-users", bind_options["allow_all_users"])
         append_text_flag(bind_cmd, "--home-channel", bind_options["home_channel"])
@@ -284,10 +272,6 @@ def build_bind_step(
     append_bool_flag(bind_cmd, "--is-main", bind_options["is_main"])
     append_text_flag(bind_cmd, "--clone-from", bind_options["clone_from"])
     append_text_flag(bind_cmd, "--account-id", bind_options["account_id"])
-    append_text_flag(bind_cmd, "--skill-endpoint", bind_options["skill_endpoint"])
-    append_text_flag(bind_cmd, "--skill-agent-id", bind_options["skill_agent_id"])
-    append_text_flag(bind_cmd, "--skill-api-key", bind_options["skill_api_key"])
-    append_text_flag(bind_cmd, "--skill-account-id", bind_options["skill_account_id"])
     append_text_flag(bind_cmd, "--allowed-users", bind_options["allowed_users"])
     append_bool_flag(bind_cmd, "--allow-all-users", bind_options["allow_all_users"])
     append_text_flag(bind_cmd, "--home-channel", bind_options["home_channel"])
