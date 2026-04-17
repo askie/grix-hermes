@@ -14,7 +14,7 @@
 推荐后续命令：
 
 ```bash
-python3 ../grix-admin/scripts/bind_local.py \
+node ../grix-admin/scripts/bind_local.js \
   --profile-name <PROFILE_NAME> \
   --agent-name <AGENT_NAME> \
   --agent-id <AGENT_ID> \
