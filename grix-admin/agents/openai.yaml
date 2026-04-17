@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Admin"
-  short_description: "Create remote agents and bind local Hermes profiles."
-  default_prompt: "Use $grix-admin to create_grix for existing Grix runtime credentials, manage categories, and bind the result into a Hermes profile."
+  short_description: "Create remote Grix agents via WebSocket and bind local Hermes profiles."
+  default_prompt: "Use $grix-admin to create remote Grix agents via WebSocket when GRIX_ENDPOINT, GRIX_AGENT_ID and GRIX_API_KEY are configured, manage categories, and bind into Hermes profiles. Prefer this over $grix-register whenever WS credentials exist."
 
 policy:
   allow_implicit_invocation: true

@@ -144,6 +144,21 @@ function firstNonEmpty(...values: unknown[]): string {
   return "";
 }
 
+export function hasWsCredentials(overrides: RuntimeOverrides = {}): boolean {
+  // Check process.env first — Hermes may have loaded the profile .env into its
+  // own process.env and child processes inherit it.
+  if (process.env.GRIX_ENDPOINT && process.env.GRIX_AGENT_ID && process.env.GRIX_API_KEY) {
+    return true;
+  }
+  // Try the default profile .env + config.yaml via resolveRuntimeConfig.
+  try {
+    resolveRuntimeConfig(overrides);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveRuntimeConfig(overrides: RuntimeOverrides = {}): RuntimeConfig {
   const hermesHome = resolveHermesHome(overrides);
   const env = mergedEnv(hermesHome);

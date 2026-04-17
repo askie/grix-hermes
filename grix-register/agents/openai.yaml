@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Register"
-  short_description: "Register Grix and bootstrap the first Hermes-ready API agent."
-  default_prompt: "Use $grix-register to register a Grix account, create the first API agent, and hand off Hermes binding."
+  short_description: "Register Grix via HTTP when no WS credentials are available."
+  default_prompt: "Use $grix-register ONLY when the current environment has NO Grix WS credentials (GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY). Handles account registration, email verification, login, and API agent creation via HTTP. If WS credentials exist, use $grix-admin instead."
 
 policy:
   allow_implicit_invocation: true

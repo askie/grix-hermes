@@ -61,7 +61,19 @@ install_flow 接收的 JSON 需要包含：
 | `soul_file` | 否 | SOUL.md 源文件路径 |
 | `soul_markdown` | 否 | SOUL.md 直接内容 |
 
-### 绑定路径（三选一）
+### 路由判断
+
+创建远端 API agent 时，按以下优先级判断走哪条路：
+
+1. payload 显式包含 `grix_register` → 走 HTTP（需要 `access_token`）
+2. payload 显式包含 `grix_admin` → 走 WS
+3. 都没有 → 自动探测当前环境是否已配置 Grix WS 运行时凭证
+   - 有（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）→ 自动走 `grix_admin`（WS）
+   - 没有 → 报错，需要上层提供 `grix_register` + `access_token`
+
+**核心原则：当前执行环境是 Hermes agent 且有 Grix WS 凭证时，永远走 `grix_admin`（WS），不要走 `grix_register`（HTTP）。只有没有 WS 凭证的新环境才需要走 HTTP 注册。**
+
+### 绑定路径
 
 install_flow 根据以下字段决定绑定路径：
 
@@ -192,7 +204,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 ### `hermes_create_new`
 
 1. 识别安装包和目标路线
-2. 如需新建远端 API agent，先走 `grix-register` 或 `grix-admin create_grix`
+2. 如需新建远端 API agent，当前环境有 WS 凭证时走 `grix-admin create_grix`；没有时走 `grix-register`
 3. 创建目标 Hermes profile
 4. 下载或落位安装内容
 5. 写入或替换目标 profile 的 `SOUL.md`

@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
+import { hasWsCredentials } from "../../shared/cli/config.js";
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -212,6 +213,7 @@ function buildBindStep(
   scripts: ScriptPaths,
   installDir: string,
   bindOptions: BindOptions,
+  hermesHome: string,
 ): BindStep {
   const register = asRecord(payload.grix_register);
   const admin = asRecord(payload.grix_admin);
@@ -234,7 +236,9 @@ function buildBindStep(
     appendTextFlag(cmd, "--avatar-url", register.avatar_url);
     appendTextFlag(cmd, "--base-url", register.base_url);
     appendTextFlag(cmd, "--profile-name", bindOptions.profile_name);
-    appendBoolFlag(cmd, "--is-main", bindOptions.is_main || register.is_main);
+    // HTTP registration is only used when there are no WS credentials,
+    // which means this is the first/main agent setup. Always is_main=true.
+    cmd.push("--is-main", "true");
     appendTextFlag(cmd, "--clone-from", bindOptions.clone_from);
     appendTextFlag(cmd, "--account-id", bindOptions.account_id);
     appendTextFlag(cmd, "--allowed-users", bindOptions.allowed_users);
@@ -284,6 +288,65 @@ function buildBindStep(
       primary_input: null,
       followup_cmd: bindCmd,
     };
+  }
+
+  // Auto-detect: if neither grix_register nor grix_admin is specified but the task
+  // needs agent creation (has agent_name but no bind_hermes/remote_agent credentials),
+  // probe for WS credentials and route to grix_admin automatically.
+  const bindHermes = asRecord(payload.bind_hermes);
+  const remoteAgent = asRecord(payload.remote_agent);
+  const hasDirectCredentials =
+    Object.keys(bindHermes).length > 0 || Object.keys(remoteAgent).length > 0;
+
+  if (!hasDirectCredentials) {
+    const agentName =
+      cleanText(payload.agent_name) ||
+      cleanText(bindOptions.profile_name);
+    if (agentName) {
+      if (hasWsCredentials({ hermesHome })) {
+        const createCmd = [scripts.node, scripts.adminScript, "--action", "create_grix"];
+        appendTextFlag(createCmd, "--agent-name", agentName);
+        appendBoolFlag(createCmd, "--is-main", bindOptions.is_main);
+
+        const autoBindCmd = [
+          scripts.node,
+          path.join(projectRoot(), "grix-admin", "scripts", "bind_local.js"),
+          "--from-json",
+          "-",
+          "--profile-mode",
+          bindOptions.profile_mode,
+          "--install-dir",
+          installDir,
+          "--hermes",
+          scripts.hermes,
+          "--node",
+          scripts.node,
+        ];
+        appendTextFlag(autoBindCmd, "--profile-name", bindOptions.profile_name);
+        appendBoolFlag(autoBindCmd, "--is-main", bindOptions.is_main);
+        appendTextFlag(autoBindCmd, "--clone-from", bindOptions.clone_from);
+        appendTextFlag(autoBindCmd, "--account-id", bindOptions.account_id);
+        appendTextFlag(autoBindCmd, "--allowed-users", bindOptions.allowed_users);
+        appendBoolFlag(autoBindCmd, "--allow-all-users", bindOptions.allow_all_users);
+        appendTextFlag(autoBindCmd, "--home-channel", bindOptions.home_channel);
+        appendTextFlag(autoBindCmd, "--home-channel-name", bindOptions.home_channel_name);
+        autoBindCmd.push("--json");
+
+        return {
+          kind: "admin",
+          primary_cmd: createCmd,
+          primary_input: null,
+          followup_cmd: autoBindCmd,
+        };
+      }
+
+      throw new Error(
+        "No grix_register (with access_token) or grix_admin specified, " +
+        "and no Grix WS credentials found in the current environment. " +
+        "Provide grix_register with access_token for HTTP registration, " +
+        "or run inside a Hermes agent with GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY configured.",
+      );
+    }
   }
 
   const bindCmd = [
@@ -679,7 +742,7 @@ async function main(): Promise<number> {
     );
     const acceptance = asRecord(payload.acceptance);
 
-    const bindStep = buildBindStep(payload, scripts, installDir, bindOptions);
+    const bindStep = buildBindStep(payload, scripts, installDir, bindOptions, hermesHome);
     const installCmd = buildInstallCommand(scripts.node, installDir);
 
     if (flags.dryRun) {

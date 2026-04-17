@@ -153,6 +153,7 @@ node scripts/create_api_agent_and_bind.js \
 ## 规则
 
 - 不要求用户自己开浏览器
+- 只有当前执行环境**没有** Grix WS 运行时凭证（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）时才走这个技能。如果当前已经是 Hermes agent 且有 WS 凭证，创建远端 agent 走 `grix-admin`
 - HTTP 只用于注册、登录、验证码、首个 API agent 创建
 - `create-api-agent` 默认按主 agent 创建，也会把"主 agent 保留全部技能"这件事继续交给 `grix-admin`
 - 本地 Hermes 绑定不在这个技能里手工拼，创建完就继续交给 `grix-admin`

@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Egg"
-  short_description: "Run Hermes agent installation and acceptance workflows."
-  default_prompt: "Use $grix-egg to run the Hermes-side Grix install_flow, start the target gateway, and finish acceptance in a test group."
+  short_description: "Orchestrate Hermes Grix installation with automatic WS/HTTP routing."
+  default_prompt: "Use $grix-egg to orchestrate Hermes-side Grix installation. Automatically routes to $grix-admin (WS) when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are configured, or $grix-register (HTTP) otherwise. Prefer WS when available."
 
 policy:
   allow_implicit_invocation: true

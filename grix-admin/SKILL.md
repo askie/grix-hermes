@@ -173,7 +173,7 @@ node scripts/admin.js --action assign_category --agent-id <AGENT_ID> --category-
 
 - 远端动作不要改走 HTTP
 - `create_grix` 表示"创建远端 Grix API agent"，不要把它理解成创建本地 Hermes agent
-- 首个远端 API agent 优先走 `grix-register`；`grix-admin create_grix` 更适合已有 Grix 运行时凭证的环境
+- 当前执行环境已有 Grix WS 运行时凭证（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）时，创建远端 agent **必须走 `grix-admin`**，不要走 `grix-register`。只有没有 WS 凭证的新环境才需要 `grix-register`
 - 本地绑定只走 Hermes `profile`、`.env`、`config.yaml`
 - 除非上层明确要求覆盖，不要破坏已存在的 profile 身份文件
 - 安装私聊进行中时，不要主动重启 gateway
