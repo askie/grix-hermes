@@ -11,7 +11,7 @@ Usage:
   node shared/cli/grix-hermes.mjs send --to <session-or-route> --message "..."
   node shared/cli/grix-hermes.mjs query --action session_search --keyword xxx
   node shared/cli/grix-hermes.mjs group --action create --name dev --member-ids 1001,1002 --member-types 1,2
-  node shared/cli/grix-hermes.mjs admin --action create_agent --agent-name my-agent
+  node shared/cli/grix-hermes.mjs admin --action create_grix --agent-name my-agent
   node shared/cli/grix-hermes.mjs unsend --message-id 2033371385615093760 --session-id <session>
 `);
 }

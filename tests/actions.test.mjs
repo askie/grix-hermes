@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runAdmin, runSend } from "../shared/cli/actions.mjs";
 
-test("admin create_agent creates category by name when needed", async () => {
+test("admin create_grix creates category by name when needed", async () => {
   const calls = [];
   const client = {
     async agentInvoke(action, params) {
@@ -25,7 +25,7 @@ test("admin create_agent creates category by name when needed", async () => {
 
   const result = await runAdmin(client, {
     accountId: "main",
-    action: "create_agent",
+    action: "create_grix",
     agentName: "writer-hermes",
     categoryName: "写作",
     parentCategoryId: "0"

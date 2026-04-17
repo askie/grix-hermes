@@ -179,7 +179,7 @@ async function listCategories(client) {
 }
 
 export async function runAdmin(client, options) {
-  const action = cleanText(options.action || "create_agent");
+  const action = cleanText(options.action || "create_grix");
   if (action === "list_categories") {
     return {
       ok: true,
@@ -224,7 +224,7 @@ export async function runAdmin(client, options) {
       })
     };
   }
-  if (action !== "create_agent") {
+  if (action !== "create_grix") {
     throw new Error(`Unsupported grix admin action: ${action}`);
   }
 
@@ -241,7 +241,7 @@ export async function runAdmin(client, options) {
   const categoryId = cleanText(options.categoryId);
   const categoryName = cleanText(options.categoryName);
   if (categoryId && categoryName) {
-    throw new Error("create_agent cannot accept both categoryId and categoryName");
+    throw new Error("create_grix cannot accept both categoryId and categoryName");
   }
 
   let resolvedCategoryId = categoryId;

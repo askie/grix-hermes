@@ -86,14 +86,14 @@ python3 scripts/bind_local.py \
 通过 `terminal` 执行：
 
 ```bash
-node scripts/admin.mjs --action create_agent --agent-name <NAME> [--introduction ...] [--is-main true|false]
+node scripts/admin.mjs --action create_grix --agent-name <NAME> [--introduction ...] [--is-main true|false]
 ```
 
 如果需要分类：
 
 ```bash
-node scripts/admin.mjs --action create_agent --agent-name <NAME> --category-id <ID>
-node scripts/admin.mjs --action create_agent --agent-name <NAME> --category-name <NAME> --parent-category-id 0
+node scripts/admin.mjs --action create_grix --agent-name <NAME> --category-id <ID>
+node scripts/admin.mjs --action create_grix --agent-name <NAME> --category-name <NAME> --parent-category-id 0
 ```
 
 创建成功后，拿返回里的 `id` / `agent_name` / `api_endpoint` / `api_key`，继续走 Hermes 绑定 helper：
@@ -133,6 +133,8 @@ node scripts/admin.mjs --action assign_category --agent-id <AGENT_ID> --category
 ## Guardrails
 
 - 远端动作不要改走 HTTP
+- `create_grix` 表示“创建远端 Grix API agent”，不要把它理解成创建本地 Hermes agent
+- 首个远端 API agent 优先走 `grix-register`；`grix-admin create_grix` 更适合已有 Grix 运行时凭证的环境
 - 本地绑定只走 Hermes `profile`、`.env`、`config.yaml`
 - 除非上层明确要求覆盖，不要破坏已存在的 profile 身份文件
 - 安装私聊进行中时，不要主动重启 gateway

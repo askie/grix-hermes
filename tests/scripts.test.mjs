@@ -91,35 +91,50 @@ test("grix-hermes install writes a runnable bundle layout", () => {
   }
 });
 
-test("published tarball can install through the README flow", () => {
+test("published tarball unpacks into a runnable bundle", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-readme-"));
   const installRoot = path.join(tempDir, "npm-prefix");
   const bundleDir = path.join(tempDir, "bundle");
-  const packResult = spawnSync(
-    "npm",
-    ["pack", "--json", "--ignore-scripts"],
-    { cwd: root, encoding: "utf8" }
-  );
+  const npmCache = path.join(tempDir, "npm-cache");
+  const packedTarballs = [];
+    const packResult = spawnSync(
+      "npm",
+      ["pack", "--json", "--ignore-scripts"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          npm_config_cache: npmCache
+        }
+      }
+    );
 
   try {
     assert.equal(packResult.status, 0, packResult.stderr);
     const packPayload = JSON.parse(packResult.stdout);
     const tarballName = packPayload[0]?.filename;
     assert.ok(tarballName);
+    const tarballPath = path.join(root, tarballName);
+    packedTarballs.push(tarballPath);
 
-    const installResult = spawnSync(
-      "npm",
-      ["install", "--prefix", installRoot, path.join(root, tarballName)],
+    const packageRoot = path.join(installRoot, "node_modules", "@dhf-hermes", "grix");
+    fs.mkdirSync(packageRoot, { recursive: true });
+
+    const unpackResult = spawnSync(
+      "tar",
+      ["-xzf", tarballPath, "-C", packageRoot, "--strip-components", "1"],
       { encoding: "utf8" }
     );
-    assert.equal(installResult.status, 0, installResult.stderr);
+    assert.equal(unpackResult.status, 0, unpackResult.stderr);
 
-    const cliPath = path.join(installRoot, "node_modules", ".bin", "grix-hermes");
+    fs.cpSync(path.join(root, "node_modules"), path.join(packageRoot, "node_modules"), { recursive: true });
+    const cliPath = path.join(packageRoot, "bin", "grix-hermes.mjs");
     assert.equal(fs.existsSync(cliPath), true);
 
     const bundleInstallResult = spawnSync(
-      cliPath,
-      ["install", "--dest", bundleDir],
+      process.execPath,
+      [cliPath, "install", "--dest", bundleDir],
       { encoding: "utf8" }
     );
     assert.equal(bundleInstallResult.status, 0, bundleInstallResult.stderr);
@@ -127,11 +142,10 @@ test("published tarball can install through the README flow", () => {
     assert.equal(fs.existsSync(path.join(bundleDir, "bin", "grix-hermes.mjs")), true);
     assert.equal(fs.existsSync(path.join(bundleDir, "node_modules", "yaml", "package.json")), true);
   } finally {
-    const tarballPath = packResult.status === 0
-      ? path.join(root, JSON.parse(packResult.stdout)[0]?.filename || "")
-      : "";
-    if (tarballPath) {
-      fs.rmSync(tarballPath, { force: true });
+    for (const tarballPath of packedTarballs) {
+      if (tarballPath) {
+        fs.rmSync(tarballPath, { force: true });
+      }
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -187,6 +201,93 @@ test("grix-admin bind_local dry-run builds Hermes bind plan", () => {
     assert.equal(payload.commands.at(-1).includes(path.join(resolvedHermesHome, "skills", "grix-hermes")), true);
   } finally {
     fs.rmSync(hermesHome, { recursive: true, force: true });
+  }
+});
+
+test("grix-admin bind_local writes named profiles under HERMES_HOME", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "grix-hermes-bind-local-"));
+  const hermesHome = path.join(tempDir, "hermes-home");
+  const installDir = path.join(tempDir, "bundle");
+  const fakeHermesPath = path.join(tempDir, "fake-hermes.mjs");
+  const logPath = path.join(tempDir, "fake-hermes.log");
+  fs.mkdirSync(hermesHome, { recursive: true });
+
+  fs.writeFileSync(
+    fakeHermesPath,
+    [
+      "#!/usr/bin/env node",
+      "import fs from 'node:fs';",
+      "import path from 'node:path';",
+      "const args = process.argv.slice(2);",
+      "const home = process.env.HERMES_HOME;",
+      "if (process.env.TEST_HERMES_LOG) fs.appendFileSync(process.env.TEST_HERMES_LOG, JSON.stringify(args) + '\\n');",
+      "if (args[0] === 'profile' && args[1] === 'create') {",
+      "  const name = args[2];",
+      "  const dir = !name || name === 'default' ? home : path.join(home, 'profiles', name);",
+      "  fs.mkdirSync(dir, { recursive: true });",
+      "  process.stdout.write(`created ${dir}\\n`);",
+      "  process.exit(0);",
+      "}",
+      "console.error(`unsupported fake hermes command: ${args.join(' ')}`);",
+      "process.exit(1);",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+  fs.chmodSync(fakeHermesPath, 0o755);
+
+  try {
+    const installResult = spawnSync(
+      process.execPath,
+      [path.join(root, "bin/grix-hermes.mjs"), "install", "--dest", installDir],
+      { encoding: "utf8" }
+    );
+    assert.equal(installResult.status, 0, installResult.stderr);
+
+    const result = spawnSync(
+      "python3",
+      [
+        path.join(root, "grix-admin/scripts/bind_local.py"),
+        "--agent-name",
+        "writer-hermes",
+        "--agent-id",
+        "9001",
+        "--api-endpoint",
+        "wss://example/ws",
+        "--api-key",
+        "ak_test",
+        "--profile-name",
+        "writer-hermes",
+        "--install-dir",
+        installDir,
+        "--hermes",
+        fakeHermesPath,
+        "--node",
+        process.execPath,
+        "--json"
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HERMES_HOME: hermesHome,
+          TEST_HERMES_LOG: logPath
+        }
+      }
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    const profileDir = fs.realpathSync(path.join(hermesHome, "profiles", "writer-hermes"));
+    const resolvedInstallDir = fs.realpathSync(installDir);
+    assert.equal(payload.profile_dir, profileDir);
+    assert.equal(fs.existsSync(path.join(profileDir, ".env")), true);
+    assert.equal(fs.existsSync(path.join(profileDir, "config.yaml")), true);
+    assert.match(fs.readFileSync(path.join(profileDir, ".env"), "utf8"), /GRIX_AGENT_ID=9001/);
+    assert.match(fs.readFileSync(path.join(profileDir, "config.yaml"), "utf8"), new RegExp(resolvedInstallDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(fs.readFileSync(logPath, "utf8"), /"profile","create","writer-hermes","--clone"/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 

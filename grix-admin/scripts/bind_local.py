@@ -33,7 +33,7 @@ def resolve_profile_dir(profile_name: str) -> Path:
     normalized = clean_text(profile_name)
     if normalized in {"", "default"}:
         return resolve_default_hermes_home()
-    return (Path.home() / ".hermes" / "profiles" / normalized).resolve()
+    return (resolve_default_hermes_home() / "profiles" / normalized).resolve()
 
 
 def resolve_install_dir(raw_install_dir: Any) -> Path:
