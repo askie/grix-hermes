@@ -32,14 +32,27 @@ node scripts/query.js --action <action> ...
 node scripts/query.js --action contact_search --keyword alice
 node scripts/query.js --action session_search --keyword 测试群
 node scripts/query.js --action message_history --session-id <SESSION_ID> --limit 20
+node scripts/query.js --action message_history --session-id <SESSION_ID> --limit 20 --before-id <MSG_ID>
+node scripts/query.js --action message_history --session-id <SESSION_ID> --limit 20 --offset 5
 node scripts/query.js --action message_search --session-id <SESSION_ID> --keyword 身份 --limit 20
 ```
+
+## 完整参数
+
+- `--action`：查询类型（必填）
+- `--keyword`：搜索关键词（contact_search、session_search、message_search 使用）
+- `--session-id`：目标会话 ID（message_history、message_search 必填）
+- `--id`：精确查询的记录 ID
+- `--limit`：返回数量限制
+- `--offset`：偏移量，用于分页
+- `--before-id`：翻页游标，返回此 ID 之前的消息
 
 ## 分页规则
 
 - 第一页先用一个合理 `limit`
 - 继续翻页时复用同一个 `session_id`
-- `message_history` / `message_search` 下一页要带 `before_id`
+- `message_history` / `message_search` 下一页要带 `--before-id`
+- 也可以用 `--offset` 做偏移分页
 
 ## 输出要求
 

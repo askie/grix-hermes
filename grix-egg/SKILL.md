@@ -19,6 +19,148 @@ node scripts/validate_install_context.js --from-file ./install-context.json
 node scripts/install_flow.js --from-file ./install-context.json --json
 ```
 
+## install_flow 完整参数
+
+```bash
+node scripts/install_flow.js \
+  --from-file ./install-context.json \
+  --profile-name <PROFILE_NAME> \
+  --install-dir ~/.hermes/skills/grix-hermes \
+  --hermes-home ~/.hermes \
+  --hermes hermes \
+  --node node \
+  --dry-run \
+  --json
+```
+
+- `--from-file`：JSON 文件路径（必填，不从 stdin 读）
+- `--profile-name`：覆盖 JSON 中的 profile 名称
+- `--install-dir`：覆盖默认安装目录 `~/.hermes/skills/grix-hermes`
+- `--hermes-home`：覆盖 `HERMES_HOME`（默认 `~/.hermes` 或环境变量）
+- `--hermes`：hermes 可执行文件路径（默认 `hermes`）
+- `--node`：node 可执行文件路径（默认 `node`）
+- `--dry-run`：只输出计划不执行
+- `--json`：JSON 格式输出
+
+## JSON Payload 结构
+
+install_flow 接收的 JSON 需要包含：
+
+### 顶层字段
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `install_id` | 是 | 安装实例 ID |
+| `main_agent` | hermes_create_new/existing | 主 agent 标识 |
+| `route` | 否 | 路由：`hermes_create_new` 或 `hermes_existing` |
+| `install.route` | 否 | 路由也可放在 `install` 子对象内 |
+| `profile_name` | 否 | 目标 profile 名称 |
+| `is_main` | 否 | 是否主 agent |
+| `install_dir` | 否 | 安装目录 |
+| `status_target` | 否 | 状态卡片投递目标（session_id） |
+| `soul_file` | 否 | SOUL.md 源文件路径 |
+| `soul_markdown` | 否 | SOUL.md 直接内容 |
+
+### 绑定路径（三选一）
+
+install_flow 根据以下字段决定绑定路径：
+
+**路径 1：grix_register（HTTP 创建）**
+
+```json
+{
+  "grix_register": {
+    "access_token": "...",
+    "agent_name": "...",
+    "base_url": "https://grix.dhf.pub",
+    "avatar_url": "..."
+  }
+}
+```
+
+**路径 2：grix_admin（WS 创建）**
+
+```json
+{
+  "grix_admin": {
+    "agent_name": "...",
+    "introduction": "...",
+    "category_id": "...",
+    "category_name": "...",
+    "parent_category_id": "0"
+  }
+}
+```
+
+`category_id` 和 `category_name` 互斥。传 `category_name` 时不存在会自动创建。
+
+**路径 3：直接绑定（已有凭证）**
+
+```json
+{
+  "bind_hermes": {
+    "profile_name": "...",
+    "agent_name": "...",
+    "agent_id": "...",
+    "api_endpoint": "wss://...",
+    "api_key": "...",
+    "is_main": true
+  }
+}
+```
+
+或
+
+```json
+{
+  "remote_agent": {
+    "profile_name": "...",
+    "agent_name": "...",
+    "agent_id": "...",
+    "api_endpoint": "wss://...",
+    "api_key": "..."
+  }
+}
+```
+
+### bind 子对象（可选覆盖）
+
+```json
+{
+  "bind": {
+    "profile_name": "...",
+    "profile_mode": "create-or-reuse",
+    "clone_from": "...",
+    "account_id": "...",
+    "allowed_users": "...",
+    "allow_all_users": "true",
+    "home_channel": "...",
+    "home_channel_name": "...",
+    "is_main": "true"
+  }
+}
+```
+
+### acceptance 子对象（可选验收）
+
+```json
+{
+  "acceptance": {
+    "group_name": "验收测试群",
+    "member_ids": ["1001", "2001"],
+    "member_types": ["1", "2"],
+    "session_type": "group",
+    "probe_message": "你是谁？",
+    "expected_substring": "我是",
+    "timeout_seconds": "15",
+    "poll_interval_seconds": "1",
+    "history_limit": "10"
+  }
+}
+```
+
+验收流程：创建测试群 → 发送会话卡片到 `status_target` → 发送 probe 消息 → 轮询消息历史检查预期回复。
+
 ## 绝对规则
 
 - 远端 Grix 查询走 [grix-query](../grix-query/SKILL.md)
@@ -66,7 +208,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 ### `hermes_existing`
 
 1. 定位目标 Hermes profile
-2. 先备份将被覆盖的 `.env`、`config.yaml`、`SOUL.md` 和安装目录
+2. 先备份将被覆盖的 `.env`、`config.yaml`、`SOUL.md` 和安装目录（自动写入 `~/.hermes/backups/grix-egg/<timestamp>/`）
 3. 下载或替换安装内容
 4. 写入新的 `SOUL.md`
 5. 调用 `grix-admin bind-hermes` 刷新凭证和技能映射
@@ -81,6 +223,14 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 - 上游如果还在发 `openclaw_create_new` / `openclaw_existing`
 - helper 会把它们归一成 `hermes_create_new` / `hermes_existing`
 - 内部流程不要再继续按 OpenClaw 语义执行
+
+## 独立验收工具
+
+如果只想验证已有 agent 的身份回答是否正确：
+
+```bash
+node scripts/verify_acceptance.js --session-id <SESSION_ID> --probe-message "你是谁" --expected-substring "我是" --timeout 15 --json
+```
 
 ## 验收规则
 

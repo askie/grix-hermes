@@ -1,14 +1,10 @@
 #!/usr/bin/env node
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_BASE_URL = "https://grix.dhf.pub";
 const DEFAULT_TIMEOUT_SECONDS = 15;
 
 type Action =
-  | "fetch-captcha"
   | "send-email-code"
   | "register"
   | "login"
@@ -145,34 +141,6 @@ async function requestJson(
     data: payload.data,
     payload,
   };
-}
-
-function maybeWriteCaptchaImage(b64s: string): string {
-  const text = cleanText(b64s);
-  if (!text.startsWith("data:image/")) return "";
-  const marker = ";base64,";
-  const idx = text.indexOf(marker);
-  if (idx < 0) return "";
-  const encoded = text.slice(idx + marker.length);
-  let content: Buffer;
-  try {
-    content = Buffer.from(encoded, "base64");
-  } catch {
-    return "";
-  }
-  const suffix = `grix-captcha-${Date.now()}-${randomUUID()}.png`;
-  const filePath = path.join(os.tmpdir(), suffix);
-  try {
-    fs.writeFileSync(filePath, content);
-  } catch {
-    try {
-      fs.unlinkSync(filePath);
-    } catch {
-      // ignore
-    }
-    return "";
-  }
-  return filePath;
 }
 
 function printJson(payload: unknown): void {
@@ -455,36 +423,12 @@ function flagRequired(flags: Record<string, string | boolean>, key: string): str
   return value;
 }
 
-async function handleFetchCaptcha(baseUrl: string): Promise<void> {
-  const result = await requestJson("GET", "/auth/captcha", baseUrl);
-  const data = (result.data && typeof result.data === "object" ? result.data : {}) as Record<string, unknown>;
-  const imagePath = maybeWriteCaptchaImage(String(data.b64s ?? ""));
-  const payload: Record<string, unknown> = {
-    ok: true,
-    action: "fetch-captcha",
-    api_base_url: result.api_base_url,
-    captcha_id: data.captcha_id ?? "",
-    b64s: data.b64s ?? "",
-  };
-  if (imagePath) payload.captcha_image_path = imagePath;
-  printJson(payload);
-}
-
 async function handleSendEmailCode(baseUrl: string, flags: Record<string, string | boolean>): Promise<void> {
   const scene = cleanText(flagRequired(flags, "scene"));
   const body: Record<string, string> = {
     email: cleanText(flagRequired(flags, "email")),
     scene,
   };
-  const captchaId = cleanText(flagString(flags, "captcha_id"));
-  const captchaValue = cleanText(flagString(flags, "captcha_value"));
-  if (scene === "reset" || scene === "change_password") {
-    if (!captchaId || !captchaValue) {
-      throw new GrixAuthError("captcha_id and captcha_value are required for reset/change_password");
-    }
-  }
-  if (captchaId) body.captcha_id = captchaId;
-  if (captchaValue) body.captcha_value = captchaValue;
 
   const result = await requestJson("POST", "/auth/send-code", baseUrl, body);
   printJson({
@@ -549,9 +493,6 @@ async function main(): Promise<void> {
   }
   try {
     switch (parsed.action) {
-      case "fetch-captcha":
-        await handleFetchCaptcha(parsed.baseUrl);
-        break;
       case "send-email-code":
         await handleSendEmailCode(parsed.baseUrl, parsed.flags);
         break;
