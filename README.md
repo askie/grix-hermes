@@ -119,8 +119,8 @@ rm -rf "$tmp"
 运行：
 
 ```bash
-node ~/.hermes/skills/grix-hermes/bin/grix-hermes.mjs list
-node ~/.hermes/skills/grix-hermes/bin/grix-hermes.mjs manifest
+node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js list
+node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js manifest
 hermes skills list
 ```
 

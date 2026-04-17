@@ -1,6 +1,6 @@
 ---
 name: grix-query
-description: 查询 Grix 联系人、会话、消息历史时使用。适用于 Hermes 里需要查联系人、找会话、读某个会话历史、按关键词搜消息，但又不能改 Hermes 内核的场景。通过 `terminal` 执行 `../shared/cli/grix-hermes.mjs query`，走 Hermes 已配置的 Grix websocket 凭证。
+description: 查询 Grix 联系人、会话、消息历史时使用。适用于 Hermes 里需要查联系人、找会话、读某个会话历史、按关键词搜消息，但又不能改 Hermes 内核的场景。通过 `terminal` 执行 `../shared/cli/grix-hermes.js query`，走 Hermes 已配置的 Grix websocket 凭证。
 ---
 
 # Grix Query
@@ -23,16 +23,16 @@ description: 查询 Grix 联系人、会话、消息历史时使用。适用于 
 统一用 `terminal` 执行：
 
 ```bash
-node scripts/query.mjs --action <action> ...
+node scripts/query.js --action <action> ...
 ```
 
 常用例子：
 
 ```bash
-node scripts/query.mjs --action contact_search --keyword alice
-node scripts/query.mjs --action session_search --keyword 测试群
-node scripts/query.mjs --action message_history --session-id <SESSION_ID> --limit 20
-node scripts/query.mjs --action message_search --session-id <SESSION_ID> --keyword 身份 --limit 20
+node scripts/query.js --action contact_search --keyword alice
+node scripts/query.js --action session_search --keyword 测试群
+node scripts/query.js --action message_history --session-id <SESSION_ID> --limit 20
+node scripts/query.js --action message_search --session-id <SESSION_ID> --keyword 身份 --limit 20
 ```
 
 ## 分页规则

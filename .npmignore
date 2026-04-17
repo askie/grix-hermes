@@ -1,0 +1,10 @@
+**/*.ts
+!**/*.d.ts
+tsconfig.json
+tests/**
+.claude/**
+scripts/clean_build.js
+scripts/publish_npm.sh
+scripts/npm_auto_browser_auth.expect
+publish.sh
+.github/**

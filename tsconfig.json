@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "outDir": ".",
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": false,
+    "isolatedModules": true
+  },
+  "include": [
+    "bin/**/*.ts",
+    "lib/**/*.ts",
+    "shared/**/*.ts",
+    "grix-admin/scripts/**/*.ts",
+    "grix-egg/scripts/**/*.ts",
+    "grix-group/scripts/**/*.ts",
+    "grix-query/scripts/**/*.ts",
+    "grix-register/scripts/**/*.ts",
+    "grix-update/scripts/**/*.ts",
+    "message-send/scripts/**/*.ts",
+    "message-unsend/scripts/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": ["node_modules", "tests/fixtures/**"]
+}
