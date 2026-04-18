@@ -13,3 +13,4 @@ coverage/
 
 # Exceptions: tooling scripts that are authored as plain JS (not TS).
 !scripts/clean_build.mjs
+.claude/
