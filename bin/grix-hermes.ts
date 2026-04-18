@@ -66,8 +66,8 @@ function setupCron(hermesBin: string, installDir: string): void {
     process.stderr.write(
       `[grix-hermes] hermes cron list failed, skipping cron setup. ` +
       `You can manually create it later with:\n` +
-      `  hermes cron add --name ${CRON_JOB_NAME} --schedule "0 6 * * *" --skill grix-update ` +
-      `--prompt 'Use the grix-update skill with {"install_dir":"${installDir}"}'\n`,
+      `  hermes cron add --name ${CRON_JOB_NAME} --skill grix-update "0 6 * * *" ` +
+      `'Use the grix-update skill with {"install_dir":"${installDir}"}'\n`,
     );
     return;
   }
@@ -78,7 +78,7 @@ function setupCron(hermesBin: string, installDir: string): void {
   const prompt = `Use the grix-update skill with {"install_dir":"${installDir}"}`;
   const addResult = spawnSync(
     hermesBin,
-    ["cron", "add", "--name", CRON_JOB_NAME, "--schedule", "0 6 * * *", "--skill", "grix-update", "--prompt", prompt],
+    ["cron", "add", "--name", CRON_JOB_NAME, "--skill", "grix-update", "0 6 * * *", prompt],
     { encoding: "utf8" },
   );
   if (addResult.error || addResult.status !== 0) {
