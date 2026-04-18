@@ -3,55 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-type Mode = "check-only" | "apply-update" | "check-and-apply";
 
 interface Flags {
-  mode: Mode;
-  repoRoot: string;
   installDir: string;
-  allowDirty: boolean;
-  git: string;
   npm: string;
   node: string;
   dryRun: boolean;
   json: boolean;
 }
 
-interface CommandEntry {
-  cmd: string[];
-  cwd: string;
-  stage: "inspect" | "apply";
-  check?: boolean;
-}
-
 interface CommandResult {
   cmd: string[];
-  cwd: string;
   code: number;
   stdout: string;
   stderr: string;
-}
-
-interface RepoState {
-  repo_root: string;
-  has_git: boolean;
-  branch: string;
-  upstream: string;
-  dirty: boolean;
-  dirty_entries: string[];
-}
-
-interface Plan {
-  repo_root: string;
-  install_dir: string;
-  mode: Mode;
-  strategy: "git-pull" | "inspect-only";
-  allow_dirty: boolean;
-  repo_state: RepoState;
-  cron_ready: boolean;
-  commands: CommandEntry[];
 }
 
 function cleanText(value: unknown): string {
@@ -65,23 +30,17 @@ function expandHome(value: string): string {
   return value;
 }
 
-function projectRoot(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, "..", "..");
-}
-
 function defaultInstallDir(): string {
   const hermesHome = path.resolve(expandHome(cleanText(process.env.HERMES_HOME) || "~/.hermes"));
   return path.join(hermesHome, "skills", "grix-hermes");
 }
 
-function runCommand(cmd: string[], cwd: string | undefined, check = true): CommandResult {
+function runCommand(cmd: string[], check = true): CommandResult {
   const [bin, ...rest] = cmd;
   if (!bin) throw new Error("runCommand received empty cmd");
-  const result = spawnSync(bin, rest, { cwd: cwd || undefined, encoding: "utf8" });
+  const result = spawnSync(bin, rest, { encoding: "utf8" });
   const payload: CommandResult = {
     cmd,
-    cwd: cwd || "",
     code: result.status ?? -1,
     stdout: (result.stdout || "").trim(),
     stderr: (result.stderr || "").trim(),
@@ -92,171 +51,34 @@ function runCommand(cmd: string[], cwd: string | undefined, check = true): Comma
   return payload;
 }
 
-function detectRepoState(repoRoot: string, gitCmd: string): RepoState {
-  const state: RepoState = {
-    repo_root: repoRoot,
-    has_git: fs.existsSync(path.join(repoRoot, ".git")),
-    branch: "",
-    upstream: "",
-    dirty: false,
-    dirty_entries: [],
-  };
-  if (!state.has_git) return state;
-
-  const branch = runCommand([gitCmd, "rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
-  state.branch = branch.stdout;
-  const status = runCommand([gitCmd, "status", "--short"], repoRoot);
-  state.dirty_entries = status.stdout.split("\n").map((line) => line).filter((line) => line.trim());
-  state.dirty = state.dirty_entries.length > 0;
-  const upstream = runCommand(
-    [gitCmd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-    repoRoot,
-    false,
-  );
-  if (upstream.code === 0) state.upstream = upstream.stdout;
-  return state;
+function resolveGlobalPackageDir(npmBin: string): string {
+  const result = runCommand([npmBin, "root", "-g"]);
+  return path.join(result.stdout, "@dhf-hermes", "grix");
 }
 
-function buildPlan(flags: Flags): Plan {
-  const repoRoot = path.resolve(cleanText(flags.repoRoot) || projectRoot());
-  const rawInstallDir = cleanText(flags.installDir);
-  let installDir = rawInstallDir ? path.resolve(expandHome(rawInstallDir)) : "";
-  if (!installDir && (flags.mode === "apply-update" || flags.mode === "check-and-apply")) {
-    installDir = defaultInstallDir();
-  }
-  const repoState = detectRepoState(repoRoot, flags.git);
-  let strategy: Plan["strategy"] = "git-pull";
-  if (!repoState.has_git) {
-    if (flags.mode !== "check-only") {
-      throw new Error(
-        "Repository root is not a git checkout. Pass a git repo root for Hermes skill updates.",
-      );
-    }
-    strategy = "inspect-only";
-  }
-
-  const commands: CommandEntry[] = [];
-  if (repoState.has_git) {
-    commands.push(
-      { cmd: [flags.git, "status", "--short"], cwd: repoRoot, stage: "inspect" },
-      { cmd: [flags.git, "rev-parse", "--abbrev-ref", "HEAD"], cwd: repoRoot, stage: "inspect" },
-      {
-        cmd: [flags.git, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-        cwd: repoRoot,
-        stage: "inspect",
-        check: false,
-      },
-    );
-    if (flags.mode === "check-only" || flags.mode === "check-and-apply") {
-      commands.push({ cmd: [flags.git, "fetch", "--prune"], cwd: repoRoot, stage: "inspect" });
-      if (repoState.upstream) {
-        commands.push({
-          cmd: [flags.git, "rev-list", "--left-right", "--count", `HEAD...${repoState.upstream}`],
-          cwd: repoRoot,
-          stage: "inspect",
-        });
-      }
-    }
-    if (flags.mode === "apply-update" || flags.mode === "check-and-apply") {
-      commands.push({ cmd: [flags.git, "pull", "--ff-only"], cwd: repoRoot, stage: "apply" });
-      commands.push({ cmd: [flags.npm, "install"], cwd: repoRoot, stage: "apply" });
-    }
-  }
-
-  if (installDir && (flags.mode === "apply-update" || flags.mode === "check-and-apply")) {
-    commands.push({
-      cmd: [
-        flags.node,
-        path.join(repoRoot, "bin", "grix-hermes.js"),
-        "install",
-        "--dest",
-        installDir,
-        "--force",
-      ],
-      cwd: repoRoot,
-      stage: "apply",
-    });
-  }
-
-  const cronReady = repoState.has_git && !repoState.dirty;
-
-  return {
-    repo_root: repoRoot,
-    install_dir: installDir,
-    mode: flags.mode,
-    strategy,
-    allow_dirty: flags.allowDirty,
-    repo_state: repoState,
-    cron_ready: cronReady,
-    commands,
-  };
+function readPkgVersion(dir: string): string {
+  const pkgPath = path.join(dir, "package.json");
+  if (!fs.existsSync(pkgPath)) return "";
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
+  return cleanText(pkg.version);
 }
 
 function parseArgs(argv: string[]): Flags {
   const flags: Flags = {
-    mode: "check-and-apply",
-    repoRoot: "",
     installDir: "",
-    allowDirty: false,
-    git: "git",
     npm: "npm",
     node: "node",
     dryRun: false,
     json: false,
   };
-  const allowedModes: Mode[] = ["check-only", "apply-update", "check-and-apply"];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     const next = argv[i + 1];
-    if (token === "--mode" && next) {
-      if (!allowedModes.includes(next as Mode)) {
-        throw new Error(`Invalid --mode: ${next}`);
-      }
-      flags.mode = next as Mode;
-      i += 1;
-      continue;
-    }
-    if (token === "--repo-root" && next !== undefined) {
-      flags.repoRoot = next;
-      i += 1;
-      continue;
-    }
-    if (token === "--install-dir" && next !== undefined) {
-      flags.installDir = next;
-      i += 1;
-      continue;
-    }
-    if (token === "--allow-dirty" && next !== undefined) {
-      if (next !== "true" && next !== "false") {
-        throw new Error(`Invalid --allow-dirty: ${next}`);
-      }
-      flags.allowDirty = next === "true";
-      i += 1;
-      continue;
-    }
-    if (token === "--git" && next !== undefined) {
-      flags.git = next;
-      i += 1;
-      continue;
-    }
-    if (token === "--npm" && next !== undefined) {
-      flags.npm = next;
-      i += 1;
-      continue;
-    }
-    if (token === "--node" && next !== undefined) {
-      flags.node = next;
-      i += 1;
-      continue;
-    }
-    if (token === "--dry-run") {
-      flags.dryRun = true;
-      continue;
-    }
-    if (token === "--json") {
-      flags.json = true;
-      continue;
-    }
+    if (token === "--install-dir" && next !== undefined) { flags.installDir = next; i += 1; continue; }
+    if (token === "--npm" && next !== undefined) { flags.npm = next; i += 1; continue; }
+    if (token === "--node" && next !== undefined) { flags.node = next; i += 1; continue; }
+    if (token === "--dry-run") { flags.dryRun = true; continue; }
+    if (token === "--json") { flags.json = true; continue; }
   }
   return flags;
 }
@@ -270,43 +92,73 @@ function main(): number {
     process.stderr.write(`${JSON.stringify({ ok: false, error: message })}\n`);
     return 1;
   }
-  try {
-    const plan = buildPlan(flags);
-    const results: CommandResult[] = [];
 
-    if (!flags.dryRun) {
-      const repoState = plan.repo_state;
-      if (
-        (plan.mode === "apply-update" || plan.mode === "check-and-apply") &&
-        repoState.has_git &&
-        repoState.dirty &&
-        !flags.allowDirty
-      ) {
-        throw new Error(
-          "Repository has uncommitted changes; refuse to auto-update without --allow-dirty true.",
-        );
+  try {
+    const installDir = path.resolve(expandHome(cleanText(flags.installDir) || defaultInstallDir()));
+
+    // Resolve global package dir to get current version before update.
+    let globalDir = "";
+    try {
+      globalDir = resolveGlobalPackageDir(flags.npm);
+    } catch {
+      // npm root -g failed; will discover after update.
+    }
+    const versionBefore = globalDir ? readPkgVersion(globalDir) : "";
+
+    const updateCmd = [flags.npm, "update", "-g", "@dhf-hermes/grix"];
+    const rootCmd = [flags.npm, "root", "-g"];
+
+    if (flags.dryRun) {
+      const payload = {
+        ok: true,
+        dry_run: true,
+        install_dir: installDir,
+        version_before: versionBefore || "unknown",
+        commands: [updateCmd, rootCmd],
+      };
+      if (flags.json) {
+        process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+      } else {
+        process.stdout.write(`dry_run=true install_dir=${installDir}\n`);
+        process.stdout.write(`$ ${updateCmd.join(" ")}\n`);
+        process.stdout.write(`$ ${rootCmd.join(" ")}\n`);
       }
-      for (const entry of plan.commands) {
-        const check = entry.check !== false;
-        results.push(runCommand(entry.cmd, entry.cwd || undefined, check));
-      }
+      return 0;
     }
 
+    // Step 1: npm update -g
+    runCommand(updateCmd);
+
+    // Step 2: npm root -g
+    globalDir = resolveGlobalPackageDir(flags.npm);
+
+    const versionAfter = readPkgVersion(globalDir);
+
+    // Step 3: reinstall to target dir
+    const installCmd = [
+      flags.node,
+      path.join(globalDir, "bin", "grix-hermes.js"),
+      "install",
+      "--dest",
+      installDir,
+      "--force",
+    ];
+    runCommand(installCmd);
+
     const payload = {
-      ok: true as const,
-      dry_run: flags.dryRun,
-      results,
-      ...plan,
+      ok: true,
+      dry_run: false,
+      install_dir: installDir,
+      version_before: versionBefore || "unknown",
+      version_after: versionAfter,
+      global_dir: globalDir,
     };
     if (flags.json) {
       process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
     } else {
       process.stdout.write(
-        `mode=${plan.mode} strategy=${plan.strategy} dry_run=${flags.dryRun}\n`,
+        `updated ${versionBefore || "unknown"} -> ${versionAfter} install_dir=${installDir}\n`,
       );
-      for (const entry of plan.commands) {
-        process.stdout.write(`$ ${entry.cmd.join(" ")}\n`);
-      }
     }
     return 0;
   } catch (error) {

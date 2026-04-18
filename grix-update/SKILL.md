@@ -1,11 +1,11 @@
 ---
 name: grix-update
-description: 需要检查或执行 `grix-hermes` 技能包升级时使用。适用于手动维护或 Hermes cron 维护场景，主线围绕发布包来源仓库和 Hermes 安装目录完成检查、拉取、依赖刷新、重新安装。
+description: 需要检查或执行 `grix-hermes` 技能包升级时使用。通过 `npm update -g` 拉最新版，再重新 install 到 Hermes skills 目录。适用于手动维护或 Hermes cron 维护场景。
 ---
 
 # Grix Update
 
-这个技能只做 `grix-hermes` 技能包升级。
+这个技能只做 `grix-hermes` 技能包升级。基于 npm 全局包更新，不依赖 git。
 
 ## 执行方式
 
@@ -17,22 +17,14 @@ node scripts/grix_update.js [options]
 
 ```bash
 node scripts/grix_update.js \
-  --mode check-and-apply \
-  --repo-root /path/to/grix-hermes \
   --install-dir ~/.hermes/skills/grix-hermes \
-  --allow-dirty true|false \
-  --git git \
   --npm npm \
   --node node \
   --dry-run \
   --json
 ```
 
-- `--mode`：`check-only` / `apply-update` / `check-and-apply`（默认 `check-and-apply`）
-- `--repo-root`：grix-hermes 仓库根目录
 - `--install-dir`：目标安装目录，默认 `~/.hermes/skills/grix-hermes`
-- `--allow-dirty`：`true` / `false`（默认 `false`）。允许工作树有未提交变更时继续升级
-- `--git`：git 可执行文件路径（默认 `git`）
 - `--npm`：npm 可执行文件路径（默认 `npm`）
 - `--node`：node 可执行文件路径（默认 `node`）
 - `--dry-run`：只输出计划不执行
@@ -40,25 +32,23 @@ node scripts/grix_update.js \
 
 ## 执行顺序
 
-1. 检查仓库是否是 git checkout
-2. 检查分支、upstream、工作树是否干净
-3. 需要时执行 `git fetch --prune`
-4. 按模式决定是否真正 `git pull --ff-only`
-5. 拉取后执行 `npm install`
-6. 执行：
-   - `node ./bin/grix-hermes.js install --dest <INSTALL_DIR> --force`
+1. `npm update -g @dhf-hermes/grix` — 拉最新版到全局 node_modules
+2. `npm root -g` — 拿到全局包路径
+3. `node <全局包>/bin/grix-hermes.js install --dest <INSTALL_DIR> --force` — 重新安装到 skills 目录
+
+## 输出
+
+成功时返回 `version_before` 和 `version_after`，便于 cron 判断是否有变化。
 
 ## Guardrails
 
-- 工作树不干净时，默认停止，不自动升级。需要时传 `--allow-dirty true`
-- 不要猜测源仓库路径或目标安装目录
-- 不要把 Hermes `skills.external_dirs` 指回本地源码仓库
-- cron 场景要把 `repo_root` 明确写死
+- 不要猜测安装目录，不确定时用默认值或显式传 `--install-dir`
+- 不要把 Hermes `skills.external_dirs` 指回 npm 全局目录或源码仓库
 
 ## 推荐 cron 接法
 
 ```text
-Use the grix-update skill with {"mode":"check-and-apply","repo_root":"/path/to/grix-hermes","install_dir":"~/.hermes/skills/grix-hermes","allow_dirty":false}
+Use the grix-update skill with {"install_dir":"~/.hermes/skills/grix-hermes"}
 ```
 
 ## 参考
