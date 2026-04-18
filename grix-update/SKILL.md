@@ -45,6 +45,15 @@ node scripts/grix_update.js \
 - 不要猜测安装目录，不确定时用默认值或显式传 `--install-dir`
 - 不要把 Hermes `skills.external_dirs` 指回 npm 全局目录或源码仓库
 
+## 自动 Cron
+
+`grix-hermes install` 完成后会自动通过 `hermes cron add` 创建每日更新任务（名称 `grix-hermes-daily-update`，每天 06:00）。行为：
+
+- 先查 `hermes cron list`，已存在同名 job 则跳过（幂等）
+- 如果 `hermes` 不在 PATH 或命令失败，降级为 stderr 提示，不影响 install 结果
+- 可用 `--skip-cron` 禁用此行为
+- 可用 `--hermes <path>` 指定 hermes 可执行文件路径
+
 ## 推荐 cron 接法
 
 ```text

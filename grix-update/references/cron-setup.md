@@ -1,8 +1,13 @@
 # Cron Setup
 
-如果你要把 `grix-update` 接到定时任务，推荐让上层 cron 直接调用这个技能。
+`grix-hermes install` 会自动创建每日更新 cron job（名称 `grix-hermes-daily-update`，每天 06:00），无需手动配置。
 
-建议输入：
+自动创建逻辑：
+- install 完成后调用 `hermes cron add`
+- 先查 `hermes cron list`，同名 job 已存在则跳过
+- `hermes` 不在 PATH 或命令失败时降级为提示，不影响 install
+
+如果自动创建未生效（比如 install 时用了 `--skip-cron`），可以手动让上层 cron 直接调用这个技能：
 
 ```json
 {"install_dir":"~/.hermes/skills/grix-hermes"}

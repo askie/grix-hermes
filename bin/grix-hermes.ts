@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -16,7 +17,7 @@ function printHelp(): void {
 Usage:
   grix-hermes list
   grix-hermes manifest
-  grix-hermes install [--dest <dir>] [--force]
+  grix-hermes install [--dest <dir>] [--force] [--skip-cron] [--hermes <path>]
 `);
 }
 
@@ -57,6 +58,39 @@ function copyRecursive(src: string, dest: string, force: boolean): void {
   fs.cpSync(src, dest, { recursive: true });
 }
 
+const CRON_JOB_NAME = "grix-hermes-daily-update";
+
+function setupCron(hermesBin: string, installDir: string): void {
+  const listResult = spawnSync(hermesBin, ["cron", "list"], { encoding: "utf8" });
+  if (listResult.error || listResult.status !== 0) {
+    process.stderr.write(
+      `[grix-hermes] hermes cron list failed, skipping cron setup. ` +
+      `You can manually create it later with:\n` +
+      `  hermes cron add --name ${CRON_JOB_NAME} --schedule "0 6 * * *" --skill grix-update ` +
+      `--prompt 'Use the grix-update skill with {"install_dir":"${installDir}"}'\n`,
+    );
+    return;
+  }
+  if ((listResult.stdout || "").includes(CRON_JOB_NAME)) {
+    process.stderr.write(`[grix-hermes] cron job "${CRON_JOB_NAME}" already exists, skipping.\n`);
+    return;
+  }
+  const prompt = `Use the grix-update skill with {"install_dir":"${installDir}"}`;
+  const addResult = spawnSync(
+    hermesBin,
+    ["cron", "add", "--name", CRON_JOB_NAME, "--schedule", "0 6 * * *", "--skill", "grix-update", "--prompt", prompt],
+    { encoding: "utf8" },
+  );
+  if (addResult.error || addResult.status !== 0) {
+    process.stderr.write(
+      `[grix-hermes] hermes cron add failed, skipping cron setup. ` +
+      `You can manually create it later.\n`,
+    );
+    return;
+  }
+  process.stderr.write(`[grix-hermes] cron job "${CRON_JOB_NAME}" created (daily at 06:00).\n`);
+}
+
 function runInstall(flags: Record<string, string | boolean>): void {
   const root = projectRoot();
   const destRoot = path.resolve(String(flags.dest || defaultInstallDir()));
@@ -74,6 +108,10 @@ function runInstall(flags: Record<string, string | boolean>): void {
       path.join(destRoot, dependency.dest),
       Boolean(flags.force),
     );
+  }
+  if (!flags["skip-cron"]) {
+    const hermesBin = String(flags.hermes || "hermes");
+    setupCron(hermesBin, destRoot);
   }
   process.stdout.write(`${destRoot}\n`);
 }
