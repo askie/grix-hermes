@@ -1,8 +1,6 @@
 export type InstallRoute =
-  | "hermes_create_new"
-  | "hermes_existing"
-  | "openclaw_create_new"
-  | "openclaw_existing"
+  | "create_new"
+  | "existing"
   | string;
 
 export interface InstallContextAgent {
@@ -44,19 +42,16 @@ export interface InstallContext {
 }
 
 export const HERMES_ROUTES = new Set<InstallRoute>([
-  "hermes_create_new",
-  "hermes_existing",
+  "create_new",
+  "existing",
 ]);
 
 export function normalizeRoute(rawRoute: unknown): InstallRoute {
-  const route = String(rawRoute ?? "").trim();
-  if (route === "openclaw_create_new") return "hermes_create_new";
-  if (route === "openclaw_existing") return "hermes_existing";
-  return route;
+  return String(rawRoute ?? "").trim();
 }
 
 export function requiredForRoute(route: InstallRoute): string[] {
-  if (route === "hermes_create_new" || route === "hermes_existing") {
+  if (route === "create_new" || route === "existing") {
     return ["install_id", "main_agent"];
   }
   return ["install_id"];

@@ -24,7 +24,10 @@ function readPayload(argv: string[]): InstallContext {
 }
 
 function buildSteps(route: InstallRoute): string[] {
-  if (route === "hermes_create_new" || route === "hermes_existing") {
+  if (
+    route === "create_new" ||
+    route === "existing"
+  ) {
     return [
       "准备安装上下文",
       "必要时创建远端 API agent",

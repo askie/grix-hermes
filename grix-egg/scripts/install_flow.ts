@@ -403,7 +403,7 @@ function backupExistingState(
   profileDir: string,
   installDir: string,
 ): string {
-  if (route !== "hermes_existing") return "";
+  if (route !== "existing") return "";
   const candidates = [
     path.join(profileDir, ".env"),
     path.join(profileDir, "config.yaml"),
@@ -672,14 +672,11 @@ function loadPayload(flags: Flags): Record<string, unknown> {
 }
 
 function normalizeRoute(rawRoute: unknown): string {
-  const route = cleanText(rawRoute);
-  if (route === "openclaw_create_new") return "hermes_create_new";
-  if (route === "openclaw_existing") return "hermes_existing";
-  return route;
+  return cleanText(rawRoute);
 }
 
 function requiredForRoute(route: string): string[] {
-  if (route === "hermes_create_new" || route === "hermes_existing") {
+  if (route === "create_new" || route === "existing") {
     return ["install_id", "main_agent"];
   }
   return ["install_id"];

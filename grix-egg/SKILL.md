@@ -51,8 +51,8 @@ install_flow 接收的 JSON 需要包含：
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `install_id` | 是 | 安装实例 ID |
-| `main_agent` | hermes_create_new/existing | 主 agent 标识 |
-| `route` | 否 | 路由：`hermes_create_new` 或 `hermes_existing` |
+| `main_agent` | create_new/existing | 主 agent 标识 |
+| `route` | 否 | 路由：`create_new` 或 `existing` |
 | `install.route` | 否 | 路由也可放在 `install` 子对象内 |
 | `profile_name` | 否 | 目标 profile 名称 |
 | `is_main` | 否 | 是否主 agent |
@@ -208,7 +208,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 
 ## 推荐主线
 
-### `hermes_create_new`
+### `create_new`
 
 1. 识别安装包和目标路线
 2. 如需新建远端 API agent，当前环境有 WS 凭证时走 `grix-admin create_grix`；没有时走 `grix-register`
@@ -224,7 +224,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 10. 回当前私聊（`status_target`）发送测试群会话卡片
 11. 在测试群（`session_id`）发 probe 做身份验收，回答不正确就排查重试
 
-### `hermes_existing`
+### `existing`
 
 1. 定位目标 Hermes profile
 2. 先备份将被覆盖的 `.env`、`config.yaml`、`SOUL.md` 和安装目录（自动写入 `~/.hermes/backups/grix-egg/<timestamp>/`）
@@ -237,11 +237,11 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 7. 如需自动更新，校验或更新 `grix-update` cron
 8. 创建测试群并在测试群做身份验收
 
-### 路由兼容
+### 路由说明
 
-- 上游如果还在发 `openclaw_create_new` / `openclaw_existing`
-- helper 会把它们归一成 `hermes_create_new` / `hermes_existing`
-- 内部流程不要再继续按 OpenClaw 语义执行
+- 路由值只有 `create_new` 和 `existing` 两种
+- `create_new`：新建 agent 并安装
+- `existing`：安装到已有 agent
 
 ## 验收失败处理
 
