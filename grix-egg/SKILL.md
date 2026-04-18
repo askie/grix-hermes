@@ -171,7 +171,14 @@ install_flow 根据以下字段决定绑定路径：
 }
 ```
 
-验收流程：创建测试群 → 发送会话卡片到 `status_target` → 发送 probe 消息 → 轮询消息历史检查预期回复。
+验收流程（注意区分两个不同的目标）：
+
+1. **创建测试群** — 用 `grix-group` 创建，拿到测试群的 `session_id`
+2. **回当前私聊发卡片** — 用 `message-send` 向 `status_target`（当前私聊）发送测试群的会话卡片，方便用户点击进入
+3. **在测试群发 probe** — 用 `message-send` 向测试群 `session_id` 发送 probe 消息
+4. **轮询测试群消息历史** — 用 `grix-query` 查测试群 `session_id` 的消息历史，检查目标 agent 是否回复了包含 `expected_substring` 的内容
+
+关键：会话卡片发到当前私聊（`status_target`），probe 消息发到测试群（测试群 `session_id`），两者不要混。
 
 ## 绝对规则
 
@@ -214,8 +221,8 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 7. 启动目标 Hermes gateway，并确认 `hermes --profile <name> gateway status` 已经是运行态
 8. 如需自动更新，补 `grix-update` 的 Hermes cron
 9. 创建测试群并拿到准确 `session_id`
-10. 回当前私聊单独发送测试群会话卡片
-11. 在测试群做身份验收，回答不正确就继续修到正确
+10. 回当前私聊（`status_target`）发送测试群会话卡片
+11. 在测试群（`session_id`）发 probe 做身份验收，回答不正确就排查重试
 
 ### `hermes_existing`
 
@@ -228,13 +235,22 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
    - 其他 agent 默认禁用 `grix-admin`、`grix-register`、`grix-update`、`grix-egg`
 6. 启动目标 Hermes gateway，并确认状态正常
 7. 如需自动更新，校验或更新 `grix-update` cron
-8. 创建测试群并做身份验收
+8. 创建测试群并在测试群做身份验收
 
 ### 路由兼容
 
 - 上游如果还在发 `openclaw_create_new` / `openclaw_existing`
 - helper 会把它们归一成 `hermes_create_new` / `hermes_existing`
 - 内部流程不要再继续按 OpenClaw 语义执行
+
+## 验收失败处理
+
+如果 probe 后目标 agent 回复不包含预期内容：
+
+1. 检查目标 profile 的 `SOUL.md` 内容是否正确
+2. 检查 `hermes --profile <name> gateway status` 是否在线
+3. 排查后重新发 probe（最多重试 3 次）
+4. 3 次仍失败，向 `status_target` 发送失败状态卡，说明停在哪一步，不要宣布安装成功
 
 ## 独立验收工具
 
@@ -246,12 +262,17 @@ node scripts/verify_acceptance.js --session-id <SESSION_ID> --probe-message "你
 
 ## 验收规则
 
-- 验收群一旦创建成功，就保存准确 `session_id`
-- 后续所有群测消息都发到这个 `session_id`
-- 如果拿到了准确 `session_id`，必须补一张会话卡片
-- 目标 Hermes profile 已存在，且绑定值已经写入
-- 目标 profile 的 `SOUL.md` 已落到位
-- 目标 profile 的 gateway 已启动并通过状态检查
+验收涉及两个消息目标，绝不能混：
+
+| 动作 | 目标 | 用什么 |
+|------|------|--------|
+| 发送测试群会话卡片 | 当前私聊（`status_target`） | `message-send` |
+| 发送 probe 消息 | 测试群（`session_id`） | `message-send` |
+| 查消息历史 | 测试群（`session_id`） | `grix-query` |
+
+- 验收群一旦创建成功，立即保存准确的 `session_id`
+- 所有 probe 消息和消息历史查询都发到这个测试群 `session_id`，不要发到私聊
+- 会话卡片只发到 `status_target`（当前私聊），不要发到测试群
 - 身份回答不正确时，不要提前宣布安装成功
 
 ## 收尾
