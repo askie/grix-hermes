@@ -12,10 +12,14 @@ REQUESTED_VERSION="${GRIX_HERMES_NPM_TARGET_VERSION:-}"
 CONFIRM_PACKAGE=""
 CONFIRM_TARBALL=""
 PACK_PREVIEW_FILE=""
+OBFUSCATE_STAGING_DIR=""
 
 cleanup() {
   if [[ -n "${PACK_PREVIEW_FILE}" && -f "${PACK_PREVIEW_FILE}" ]]; then
     rm -f "${PACK_PREVIEW_FILE}"
+  fi
+  if [[ -n "${OBFUSCATE_STAGING_DIR}" && -d "${OBFUSCATE_STAGING_DIR}" ]]; then
+    rm -rf "${OBFUSCATE_STAGING_DIR}"
   fi
 }
 
@@ -255,6 +259,14 @@ run_quality_gates() {
   npm test
 }
 
+obfuscate_for_publish() {
+  log "obfuscate JS for npm publish"
+  OBFUSCATE_STAGING_DIR="$(node "${SCRIPT_DIR}/obfuscate.mjs")"
+  [[ -f "${OBFUSCATE_STAGING_DIR}/package.json" ]] || fail "obfuscate staging dir missing package.json"
+  [[ -f "${OBFUSCATE_STAGING_DIR}/bin/grix-hermes.js" ]] || fail "obfuscate staging dir missing bin/grix-hermes.js"
+  log "obfuscated staging dir: ${OBFUSCATE_STAGING_DIR}"
+}
+
 ensure_registry_auth() {
   local whoami_output
 
@@ -396,7 +408,7 @@ publish_package() {
   assert_target_version_unpublished "${version}"
 
   log "publish ${PACKAGE_NAME}@${version} to ${REGISTRY}"
-  npm publish --access public --registry="${REGISTRY}"
+  npm publish --access public --registry="${REGISTRY}" --ignore-scripts
 }
 
 verify_published_version() {
@@ -450,6 +462,8 @@ main() {
 
   install_and_verify_dependencies
   run_quality_gates
+  obfuscate_for_publish
+  cd "${OBFUSCATE_STAGING_DIR}"
   capture_pack_preview
   assert_pack_contains_publishable_files
   print_preview_summary "${target_version}" "${target_package_ref}" "${target_tarball}"

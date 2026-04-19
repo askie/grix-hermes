@@ -54,6 +54,7 @@
     "test": "npm run build && node --test tests/*.test.js",
     "test:watch": "tsx --test tests/*.test.ts",
     "prepack": "npm run clean && npm run build",
+    "obfuscate": "node scripts/obfuscate.mjs",
     "publish:preview": "bash ./publish.sh",
     "publish:npm": "bash ./publish.sh --publish"
   },
@@ -76,6 +77,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
+    "javascript-obfuscator": "^5.4.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
