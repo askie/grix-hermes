@@ -46,6 +46,10 @@ export const SKILLS: SkillDefinition[] = [
     name: "message-unsend",
     description: "Silent Grix unsend workflow over the bundled websocket CLI.",
   },
+  {
+    name: "grix-key-rotate",
+    description: "Rotate Grix agent API key with optional .env file update. Agents with agent.api.create scope can call independently.",
+  },
 ];
 
 const require = createRequire(import.meta.url);

@@ -201,6 +201,35 @@ function maskResult(data: unknown): unknown {
   return masked;
 }
 
+function patchApiKeyInEnvFile(envFilePath: string, newApiKey: string): string {
+  if (!fs.existsSync(envFilePath)) {
+    throw new Error(`--env-file not found: ${envFilePath}`);
+  }
+  const lines = fs.readFileSync(envFilePath, "utf8").split("\n");
+  let replaced = false;
+  const updated = lines.map((line) => {
+    const eq = line.indexOf("=");
+    if (eq > 0 && line.slice(0, eq).trim() === "GRIX_API_KEY") {
+      replaced = true;
+      return `GRIX_API_KEY=${newApiKey}`;
+    }
+    return line;
+  });
+  if (!replaced) {
+    throw new Error("GRIX_API_KEY not found in --env-file");
+  }
+  fs.writeFileSync(envFilePath, updated.join("\n"), "utf8");
+  const tmpDir = path.join(os.homedir(), ".hermes", "tmp");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const tempKeyFile = path.join(tmpDir, `grix-key-${Date.now()}.tmp`);
+  fs.writeFileSync(tempKeyFile, JSON.stringify({
+    api_key: newApiKey,
+    configured_env: envFilePath,
+    created_at: new Date().toISOString(),
+  }, null, 2), "utf8");
+  return tempKeyFile;
+}
+
 interface ConfigHermesResult {
   ok: boolean;
   envFile: string;
@@ -467,5 +496,37 @@ export async function runSend(
     resolvedTarget: resolved,
     message,
     ack,
+  };
+}
+
+export async function runKeyRotate(
+  client: AibotWsClient,
+  options: CommonActionOptions,
+): Promise<Record<string, unknown>> {
+  const agentId = cleanText(options.agentId);
+  if (!agentId) throw new Error("key_rotate requires --agent-id");
+  const envFilePath = cleanText(options.envFile);
+  const raw = await client.agentInvoke("agent_api_key_rotate", { agent_id: agentId });
+  const record = asRecord(raw) ?? {};
+  const newApiKey = cleanText(record.api_key);
+  if (!newApiKey) throw new Error("key rotate response missing api_key");
+  if (envFilePath) {
+    const tempKeyFile = patchApiKeyInEnvFile(envFilePath, newApiKey);
+    return {
+      ok: true,
+      accountId: options.accountId,
+      action: "key_rotate",
+      agentId,
+      rotatedAgent: maskResult(raw),
+      envFile: envFilePath,
+      tempKeyFile,
+    };
+  }
+  return {
+    ok: true,
+    accountId: options.accountId,
+    action: "key_rotate",
+    agentId,
+    rotatedAgent: maskResult(raw),
   };
 }

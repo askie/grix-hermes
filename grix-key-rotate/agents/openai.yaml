@@ -1,0 +1,6 @@
+interface:
+  display_name: "Grix Key Rotate"
+  short_description: "Rotate Grix agent API key and optionally update .env file."
+  default_prompt: "Use $grix-key-rotate to rotate the API key for a Grix agent."
+policy:
+  allow_implicit_invocation: true

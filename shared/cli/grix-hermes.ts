@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AibotWsClient } from "./aibot-client.js";
-import { runAdmin, runGroup, runQuery, runSend, runUnsend } from "./actions.js";
+import { runAdmin, runGroup, runKeyRotate, runQuery, runSend, runUnsend } from "./actions.js";
 import type { CommonActionOptions } from "./actions.js";
 import { resolveRuntimeConfig, type RuntimeOverrides } from "./config.js";
 
@@ -13,6 +13,7 @@ Usage:
   node shared/cli/grix-hermes.js group --action create --name dev --member-ids 1001,1002 --member-types 1,2
   node shared/cli/grix-hermes.js admin --action create_grix --agent-name my-agent
   node shared/cli/grix-hermes.js unsend --message-id 2033371385615093760 --session-id <session>
+  node shared/cli/grix-hermes.js key_rotate --agent-id <AGENT_ID> [--env-file ~/.hermes/profiles/<PROFILE>/config.env]
 `);
 }
 
@@ -73,6 +74,8 @@ async function main(): Promise<void> {
       result = await runAdmin(client, options);
     } else if (command === "unsend") {
       result = await runUnsend(client, options);
+    } else if (command === "key_rotate") {
+      result = await runKeyRotate(client, options);
     } else {
       throw new Error(`Unsupported command: ${command}`);
     }
