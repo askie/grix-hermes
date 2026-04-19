@@ -79,3 +79,7 @@ Each of the 9 skills follows this layout:
 - **Dual-path routing**: WS path (grix-admin) used when `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` are present; HTTP path (grix-register) as fallback.
 - **Envelope output**: All scripts output `{ok: true, data}` or `{ok: false, error}` JSON.
 - **Profile management**: `bind_local.ts` + `patch_profile_config.ts` manage Hermes profiles, `.env` files, and `config.yaml` skill visibility.
+
+## 统一出站端到端测试
+
+grix-hermes 是技能包而非 AI 适配器，不代理到 AI 模型，因此不适用统一的出站 E2E 测试。出站 E2E 测试仅适用于有 AI 模型交互的适配器（Claude、Gemini、Qwen、Codex、OpenClaw）。
