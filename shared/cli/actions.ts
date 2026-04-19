@@ -336,6 +336,18 @@ export async function runAdmin(
       }),
     };
   }
+  if (action === "agent_status") {
+    const agentId = cleanText(options.agentId);
+    if (!agentId) throw new Error("agent_status requires --agent-id");
+    const data = await client.agentInvoke("agent_api_status", { agent_id: agentId });
+    return {
+      ok: true,
+      accountId: options.accountId,
+      action,
+      agent_id: agentId,
+      data,
+    };
+  }
   if (action === "config_hermes") {
     const envFilePath = cleanText(options.envFile);
     if (!envFilePath) throw new Error("config_hermes requires --env-file (absolute path to .env)");

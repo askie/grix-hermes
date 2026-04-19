@@ -199,7 +199,24 @@ node scripts/admin.js --action config_hermes --env-file ~/.hermes/profiles/<PROF
 - `tempKeyFile`：临时密钥备份文件路径
 - `message`：配置成功提示文本
 
-## Mode D: category-manage
+## Mode D: agent-status
+
+查询指定 agent 的在线状态和 key 有效性。
+
+```bash
+node scripts/admin.js --action agent_status --agent-id <AGENT_ID>
+```
+
+必填参数：
+- `--agent-id`：目标 agent ID
+
+返回：
+- `agent_id`：查询的 agent ID
+- `data`：服务端返回的状态信息（online、status 等）
+
+前置条件：服务端需提供 `agent_api_status` 接口。
+
+## Mode E: category-manage
 
 分类相关动作统一走：
 

@@ -281,3 +281,17 @@ node scripts/verify_acceptance.js --session-id <SESSION_ID> --probe-message "你
 
 - 成功：状态卡 + Agent 资料卡 + 下一步说明
 - 失败：失败状态卡 + 清楚说明停在哪一步
+
+## 常见陷阱
+
+### 陷阱 1：Hermes 全链路密钥脱敏
+
+所有终端输出（`cat`、`print`、`echo`、Python `print()`、`xxd` ASCII 列）都会将 API key 替换为遮掩值。`write_file` 传入的内容如果包含 key 明文，也可能被过滤。
+
+**正确做法**：读写 `.env` 文件中的密钥时，必须用二进制方式（Python `open('rb')/open('wb')` 或 `shutil.copyfile`），不能经过终端输出中转。验证用 `xxd` 的 hex 列（hex 列不过滤）。
+
+### 陷阱 2：profile clone 导致 LLM key 变成字面 `***`
+
+`hermes profile create --clone` 时，Hermes 先读源 profile 的 `.env`（被过滤为遮掩值），再将过滤后的内容写入新 profile。结果：新 profile 的 `GLM_API_KEY=***` 是三个星号的字面值，不是明文。
+
+**正确做法**：clone 后必须立即从源 profile 或全局 `.env` 用二进制方式补全 LLM provider 密钥（即 `bind_local.js --inherit-keys`）。
