@@ -1,6 +1,6 @@
 {
   "name": "@dhf-hermes/grix",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Standalone Hermes skill bundle for Grix workflows.",
   "type": "module",
   "bin": {
@@ -38,6 +38,9 @@
     "message-unsend/**/*.js",
     "message-unsend/SKILL.md",
     "message-unsend/agents/**",
+    "grix-key-rotate/**/*.js",
+    "grix-key-rotate/SKILL.md",
+    "grix-key-rotate/agents/**",
     "README.md",
     "LICENSE",
     ".gitignore"
