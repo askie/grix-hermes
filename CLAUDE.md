@@ -10,7 +10,7 @@ npm run typecheck    # tsc --noEmit
 npm run clean        # removes compiled .js/.js.map/.d.ts where a sibling .ts exists
 npm test             # clean + build + node --test tests/*.test.js
 npm run test:watch   # tsx --test tests/*.test.ts (dev watch mode)
-npm run list         # node bin/grix-hermes.js list — shows all 8 skills
+npm run list         # node bin/grix-hermes.js list — shows all 9 skills
 npm run manifest     # node bin/grix-hermes.js manifest — JSON manifest
 ```
 
@@ -27,7 +27,7 @@ npm publish                               # prepack (clean+build) runs automatic
 
 ## Architecture
 
-**Package**: `@dhf-hermes/grix` — a Hermes skill bundle published to npm. Installs 8 skills into `~/.hermes/skills/grix-hermes`.
+**Package**: `@dhf-hermes/grix` — a Hermes skill bundle published to npm. Installs 9 skills into `~/.hermes/skills/grix-hermes`.
 
 **In-place compilation**: TypeScript compiles `.ts` → `.js` in the same directory (`rootDir` = `outDir` = `.`). `.gitignore` excludes `**/*.js` except `scripts/clean_build.mjs`. Never manually edit `.js` files.
 
@@ -37,7 +37,7 @@ npm publish                               # prepack (clean+build) runs automatic
 - **`lib/manifest.ts`** — Skill definitions (`SKILLS` array), project root resolution, install entries enumeration.
 - **`shared/cli/`** — Central WebSocket CLI infrastructure:
   - `aibot-client.ts` — `AibotWsClient` class for Grix Aibot Agent API (auth handshake, seq-based request/response correlation)
-  - `actions.ts` — Action implementations (query, send, group, admin, unsend)
+  - `actions.ts` — Action implementations (query, send, group, admin, unsend, key_rotate)
   - `grix-hermes.ts` — CLI dispatcher for the shared WS commands
   - `config.ts` — Config resolution chain: CLI flags > env vars > `~/.hermes/.env` > `~/.hermes/config.yaml`
   - `targets.ts` — Target resolution (session/route to resolved session, unsend plan)
@@ -47,7 +47,7 @@ npm publish                               # prepack (clean+build) runs automatic
 
 ### Skill structure
 
-Each of the 8 skills follows this layout:
+Each of the 9 skills follows this layout:
 
 ```
 <skill-name>/
@@ -71,10 +71,11 @@ Each of the 8 skills follows this layout:
 | `grix-update` | Bundle self-update (`npm update -g` + reinstall) |
 | `message-send` | Message sending + card links |
 | `message-unsend` | Silent message retraction |
+| `grix-key-rotate` | API key rotation with `.env` file update (WS path, no plaintext output) |
 
 ### Core patterns
 
-- **Thin-shim pattern**: Most skill scripts (`group.ts`, `query.ts`, `send.ts`, `unsend.ts`, `admin.ts`) are 3-line files importing `runSharedCliAction` from `shared/cli/skill-wrapper.ts`, delegating to the shared WS CLI. Real logic lives in `shared/cli/`.
+- **Thin-shim pattern**: Most skill scripts (`group.ts`, `query.ts`, `send.ts`, `unsend.ts`, `admin.ts`, `grix-key-rotate.ts`) are 3-line files importing `runSharedCliAction` from `shared/cli/skill-wrapper.ts`, delegating to the shared WS CLI. Real logic lives in `shared/cli/`.
 - **Dual-path routing**: WS path (grix-admin) used when `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` are present; HTTP path (grix-register) as fallback.
 - **Envelope output**: All scripts output `{ok: true, data}` or `{ok: false, error}` JSON.
 - **Profile management**: `bind_local.ts` + `patch_profile_config.ts` manage Hermes profiles, `.env` files, and `config.yaml` skill visibility.
