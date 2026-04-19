@@ -218,6 +218,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 6. 调用 `grix-admin bind-hermes`
    - 目标就是主 agent 时，显式传 `--is-main true`
    - 其他 agent 默认传 `--is-main false`
+   - **必须传 `--inherit-keys global`**，从全局 `.env` 继承 LLM provider 密钥
 7. 启动目标 Hermes gateway，并确认 `hermes --profile <name> gateway status` 已经是运行态
 8. 如需自动更新，补 `grix-update` 的 Hermes cron
 9. 创建测试群并拿到准确 `session_id`
@@ -233,6 +234,7 @@ node ../message-send/scripts/card-link.js conversation --session-id <SESSION_ID>
 5. 调用 `grix-admin bind-hermes` 刷新凭证和技能映射
    - 主 agent 保留全部技能
    - 其他 agent 默认禁用 `grix-admin`、`grix-register`、`grix-update`、`grix-egg`
+   - **传 `--inherit-keys global`**，确保 LLM provider 密钥没被覆盖损坏
 6. 启动目标 Hermes gateway，并确认状态正常
 7. 如需自动更新，校验或更新 `grix-update` cron
 8. 创建测试群并在测试群做身份验收

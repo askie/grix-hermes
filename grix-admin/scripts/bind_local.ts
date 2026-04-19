@@ -27,6 +27,7 @@ interface Flags {
   dryRun: boolean;
   json: boolean;
   fromJson: string;
+  inheritKeys: string;
 }
 
 function cleanText(value: unknown): string {
@@ -176,6 +177,42 @@ function resolveManagementPolicy(profileExists: boolean, isMain: boolean | null)
   if (isMain === true) return "main";
   if (isMain === false) return "restricted";
   return profileExists ? "preserve" : "restricted";
+}
+
+const LLM_KEY_PATTERN = /^(?:.*_)?(?:API_KEY|BASE_URL|MODEL|URL)$/;
+
+function inheritLlmKeys(targetEnvPath: string, sourceProfileName: string | null): string[] {
+  const hermesHome = resolveDefaultHermesHome();
+  const candidates: string[] = [];
+  if (sourceProfileName && sourceProfileName !== "default") {
+    candidates.push(path.join(hermesHome, "profiles", sourceProfileName, ".env"));
+  }
+  candidates.push(path.join(hermesHome, ".env"));
+
+  let sourceLines: string[] = [];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      sourceLines = readEnvLines(candidate);
+      break;
+    }
+  }
+  if (sourceLines.length === 0) return [];
+
+  const llmEntries: Record<string, string> = {};
+  for (const line of sourceLines) {
+    const stripped = line.trim();
+    if (!stripped || stripped.startsWith("#") || !stripped.includes("=")) continue;
+    const eq = stripped.indexOf("=");
+    const key = stripped.slice(0, eq).trim();
+    const value = stripped.slice(eq + 1).trim();
+    if (LLM_KEY_PATTERN.test(key) && !key.startsWith("GRIX_") && value && !value.includes("***")) {
+      llmEntries[key] = value;
+    }
+  }
+
+  if (Object.keys(llmEntries).length === 0) return [];
+  const result = applyEnvChanges(targetEnvPath, llmEntries, new Set());
+  return result.changed_keys;
 }
 
 // --- --from-json extraction logic (merged from bind_from_json.py) ---
@@ -389,6 +426,7 @@ function parseArgs(argv: string[]): Flags {
     dryRun: false,
     json: false,
     fromJson: "",
+    inheritKeys: "",
   };
   const take = (i: number): [string, number] => {
     const next = argv[i + 1];
@@ -435,6 +473,12 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--node") { const [v, j] = take(i); flags.node = v; i = j; continue; }
     if (token === "--from-json") { const [v, j] = take(i); flags.fromJson = v; i = j; continue; }
     if (token === "--dry-run") { flags.dryRun = true; continue; }
+    if (token === "--inherit-keys") {
+      const [v, j] = take(i);
+      flags.inheritKeys = v;
+      i = j;
+      continue;
+    }
     if (token === "--json") { flags.json = true; continue; }
   }
   return flags;
@@ -489,6 +533,17 @@ function main(): number {
       );
     }
 
+    if (/\.{3}/.test(flags.apiKey) && /^ak_\d+\.\.\.[A-Za-z]+$/.test(flags.apiKey)) {
+      throw new Error(
+        "GRIX_API_KEY appears to be a masked value. Use --env-file with create_grix or key_rotate to obtain a valid key.",
+      );
+    }
+    if (!/^ak_\d+_[A-Za-z0-9]+$/.test(flags.apiKey)) {
+      process.stderr.write(
+        `[grix-hermes] Warning: GRIX_API_KEY does not match expected format (ak_<digits>_<alphanumeric>). Proceeding anyway.\n`,
+      );
+    }
+
     const plan = buildPlan(flags);
     let createdProfile = false;
     let envResult: EnvResult | null = null;
@@ -515,6 +570,27 @@ function main(): number {
       }
 
       envResult = applyEnvChanges(plan.env_path, plan.env_updates, new Set(plan.env_removals));
+
+      const inheritSource = cleanText(flags.inheritKeys);
+      if (inheritSource === "true" || inheritSource === "global") {
+        const inheritedKeys = inheritLlmKeys(plan.env_path, null);
+        if (inheritedKeys.length > 0) {
+          commandResults.push({
+            cmd: ["inherit-llm-keys", "--source", "global"],
+            stdout: `inherited: ${inheritedKeys.join(", ")}`,
+            stderr: "",
+          });
+        }
+      } else if (inheritSource) {
+        const inheritedKeys = inheritLlmKeys(plan.env_path, inheritSource);
+        if (inheritedKeys.length > 0) {
+          commandResults.push({
+            cmd: ["inherit-llm-keys", "--source", inheritSource],
+            stdout: `inherited: ${inheritedKeys.join(", ")}`,
+            stderr: "",
+          });
+        }
+      }
     }
 
     const payload = {
