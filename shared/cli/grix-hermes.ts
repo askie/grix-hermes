@@ -55,7 +55,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  const runtime = resolveRuntimeConfig(flags as RuntimeOverrides);
+  // --agent-id is a business param (target agent), not the WS auth identity.
+  // Strip it from connection overrides so WS always authenticates as the calling agent.
+  const { agentId: _targetAgentId, ...connectionFlags } = flags;
+  const runtime = resolveRuntimeConfig(
+    (command === "key_rotate" || command === "admin" || command === "group"
+      ? connectionFlags
+      : flags) as RuntimeOverrides,
+  );
   const accountId =
     (typeof flags.accountId === "string" && flags.accountId) || runtime.connection.accountId;
   const options = { ...(flags as unknown as CommonActionOptions), accountId };
