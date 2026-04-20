@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Egg"
-  short_description: "Orchestrate Hermes Grix installation with automatic WS/HTTP routing."
-  default_prompt: "Use $grix-egg to orchestrate Hermes-side Grix installation. Automatically routes to $grix-admin (WS) when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are configured, or $grix-register (HTTP) otherwise. Prefer WS when available."
+  short_description: "One-command agent incubation with auto-detection and resume."
+  default_prompt: "Use $grix-egg to incubate a new agent. Run `node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --json`. On failure, read the step/suggestion in the error and retry with --resume."
 
 policy:
   allow_implicit_invocation: true
