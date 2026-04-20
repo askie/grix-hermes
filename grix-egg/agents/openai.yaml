@@ -1,7 +1,21 @@
 interface:
   display_name: "Grix Egg"
   short_description: "One-command agent incubation with auto-detection and resume."
-  default_prompt: "Use $grix-egg to incubate a new agent. Run `node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --json`. On failure, read the step/suggestion in the error and retry with --resume."
+  default_prompt: |
+    Use $grix-egg to incubate a new Grix agent in one command.
+
+    Required: --install-id (use the value from install context, or generate a unique string like 'egg-' + 8 random hex chars) and --agent-name.
+
+    Typical usage:
+      node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --soul-content "personality text" --status-target <SESSION_ID> --json
+
+    Acceptance testing: provide BOTH --probe-message and --expected-substring to trigger it; omit both to skip.
+
+    On failure: read the step/suggestion in the error JSON, then retry with --resume using the same --install-id.
+
+    Route: --route create_new (default, from scratch) or existing (reinstall to an existing agent with auto-backup).
+
+    Path auto-detection: WS when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are present; HTTP when only --access-token is provided. No manual selection needed.
 
 policy:
   allow_implicit_invocation: true
