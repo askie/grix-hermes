@@ -42,7 +42,7 @@ function buildAuthPayload(config: RuntimeConnectionConfig): Record<string, unkno
     client_version: config.clientVersion,
     protocol_version: "aibot-agent-api-v1",
     contract_version: config.contractVersion ?? 1,
-    host_type: config.hostType || "openclaw",
+    host_type: config.hostType || "hermes",
     capabilities: config.capabilities || [
       "session_route",
       "thread_v1",

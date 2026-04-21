@@ -773,7 +773,7 @@ async function stepAccept(
   runCommand([flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", probeMessage], { env });
 
   // Poll message history for expected substring
-  const timeoutSeconds = 20;
+  const timeoutSeconds = 15;
   const pollInterval = 1;
   const expectedLower = expectedSubstring.toLowerCase();
   const deadline = Date.now() + timeoutSeconds * 1000;

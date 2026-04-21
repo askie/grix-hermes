@@ -5,8 +5,8 @@ import YAML from "yaml";
 
 const DEFAULT_BASE_URL = "https://grix.dhf.pub";
 const DEFAULT_CLIENT = "grix-hermes";
-const DEFAULT_CLIENT_TYPE = "openclaw";
-const DEFAULT_HOST_TYPE = "openclaw";
+const DEFAULT_CLIENT_TYPE = "hermes";
+const DEFAULT_HOST_TYPE = "hermes";
 const DEFAULT_CAPABILITIES = [
   "session_route",
   "thread_v1",

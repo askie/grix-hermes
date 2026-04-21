@@ -280,6 +280,7 @@ function buildBindStep(
     appendBoolFlag(bindCmd, "--allow-all-users", bindOptions.allow_all_users);
     appendTextFlag(bindCmd, "--home-channel", bindOptions.home_channel);
     appendTextFlag(bindCmd, "--home-channel-name", bindOptions.home_channel_name);
+    bindCmd.push("--inherit-keys", "global");
     bindCmd.push("--json");
 
     return {
@@ -330,6 +331,7 @@ function buildBindStep(
         appendBoolFlag(autoBindCmd, "--allow-all-users", bindOptions.allow_all_users);
         appendTextFlag(autoBindCmd, "--home-channel", bindOptions.home_channel);
         appendTextFlag(autoBindCmd, "--home-channel-name", bindOptions.home_channel_name);
+        autoBindCmd.push("--inherit-keys", "global");
         autoBindCmd.push("--json");
 
         return {
@@ -371,6 +373,7 @@ function buildBindStep(
   appendBoolFlag(bindCmd, "--allow-all-users", bindOptions.allow_all_users);
   appendTextFlag(bindCmd, "--home-channel", bindOptions.home_channel);
   appendTextFlag(bindCmd, "--home-channel-name", bindOptions.home_channel_name);
+  bindCmd.push("--inherit-keys", "global");
   bindCmd.push("--json");
   const bindPayload = buildBindInputPayload(payload, bindOptions);
   return {
