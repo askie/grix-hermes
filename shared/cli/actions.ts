@@ -201,6 +201,24 @@ function maskResult(data: unknown): unknown {
   return masked;
 }
 
+function ensurePrivateDir(dirPath: string): void {
+  fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dirPath, 0o700);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+}
+
+function writePrivateFile(filePath: string, contents: string): void {
+  fs.writeFileSync(filePath, contents, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+}
+
 function patchApiKeyInEnvFile(envFilePath: string, newApiKey: string): string {
   if (!fs.existsSync(envFilePath)) {
     throw new Error(`--env-file not found: ${envFilePath}`);
@@ -218,15 +236,15 @@ function patchApiKeyInEnvFile(envFilePath: string, newApiKey: string): string {
   if (!replaced) {
     throw new Error("GRIX_API_KEY not found in --env-file");
   }
-  fs.writeFileSync(envFilePath, updated.join("\n"), "utf8");
+  writePrivateFile(envFilePath, updated.join("\n"));
   const tmpDir = path.join(os.homedir(), ".hermes", "tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
+  ensurePrivateDir(tmpDir);
   const tempKeyFile = path.join(tmpDir, `grix-key-${Date.now()}.tmp`);
-  fs.writeFileSync(tempKeyFile, JSON.stringify({
+  writePrivateFile(tempKeyFile, JSON.stringify({
     api_key: newApiKey,
     configured_env: envFilePath,
     created_at: new Date().toISOString(),
-  }, null, 2), "utf8");
+  }, null, 2));
   return tempKeyFile;
 }
 
@@ -244,7 +262,7 @@ function configHermes(
   apiKey: string,
 ): ConfigHermesResult {
   const envDir = path.dirname(envFilePath);
-  fs.mkdirSync(envDir, { recursive: true });
+  ensurePrivateDir(envDir);
 
   const envLines: string[] = [];
   const existing: Record<string, string> = {};
@@ -262,18 +280,18 @@ function configHermes(
   for (const [k, v] of Object.entries(existing)) {
     envLines.push(`${k}=${v}`);
   }
-  fs.writeFileSync(envFilePath, envLines.join("\n") + "\n", "utf8");
+  writePrivateFile(envFilePath, envLines.join("\n") + "\n");
 
   const tmpDir = path.join(os.homedir(), ".hermes", "tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
+  ensurePrivateDir(tmpDir);
   const tempKeyFile = path.join(tmpDir, `grix-key-${Date.now()}.tmp`);
-  fs.writeFileSync(tempKeyFile, JSON.stringify({
+  writePrivateFile(tempKeyFile, JSON.stringify({
     agent_id: agentId,
     api_endpoint: apiEndpoint,
     api_key: apiKey,
     configured_env: envFilePath,
     created_at: new Date().toISOString(),
-  }, null, 2), "utf8");
+  }, null, 2));
 
   return {
     ok: true,

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const NEGATIVE_STATUS_HINTS = [
   "not running",
@@ -33,6 +33,12 @@ interface CommandOutput {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+interface StartAttempt {
+  mode: "already_running" | "service_start" | "service_install_start" | "manual_run_detached";
+  command: string[];
+  result: CommandOutput;
 }
 
 function cleanText(value: unknown): string {
@@ -95,6 +101,22 @@ function runCommand(cmd: string[], env: NodeJS.ProcessEnv, check = true): Comman
   return output;
 }
 
+function runDetachedCommand(cmd: string[], env: NodeJS.ProcessEnv): CommandOutput {
+  const [bin, ...rest] = cmd;
+  if (!bin) throw new Error("runDetachedCommand received empty cmd");
+  const child = spawn(bin, rest, {
+    detached: true,
+    env,
+    stdio: "ignore",
+  });
+  child.unref();
+  return {
+    code: 0,
+    stdout: `detached pid=${child.pid ?? ""}`.trim(),
+    stderr: "",
+  };
+}
+
 function summarizeOutput(result: CommandOutput): string {
   return [cleanText(result.stdout), cleanText(result.stderr)]
     .filter(Boolean)
@@ -107,6 +129,31 @@ function statusIsRunning(result: CommandOutput): boolean {
   if (!combined) return false;
   if (NEGATIVE_STATUS_HINTS.some((hint) => combined.includes(hint))) return false;
   return POSITIVE_STATUS_HINTS.some((hint) => combined.includes(hint));
+}
+
+function serviceLooksUnavailable(result: CommandOutput): boolean {
+  const combined = summarizeOutput(result).toLowerCase();
+  return (
+    result.code !== 0 &&
+    (
+      combined.includes("not installed") ||
+      combined.includes("service is not installed") ||
+      combined.includes("no such file") ||
+      combined.includes("could not find") ||
+      combined.includes("not loaded") ||
+      combined.includes("unloaded")
+    )
+  );
+}
+
+function waitForRunning(statusCmd: string[], env: NodeJS.ProcessEnv): CommandOutput {
+  let latest = runCommand(statusCmd, env, false);
+  const deadline = Date.now() + 10000;
+  while (!statusIsRunning(latest) && Date.now() < deadline) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+    latest = runCommand(statusCmd, env, false);
+  }
+  return latest;
 }
 
 function parseArgs(argv: string[]): Flags {
@@ -162,25 +209,52 @@ function main(): number {
     const statusBefore = runCommand(statusCmd, env, false);
     const alreadyRunning = statusIsRunning(statusBefore);
 
-    let startResult: CommandOutput | null = null;
+    let startAttempt: StartAttempt | null = null;
     if (!alreadyRunning) {
       const startCmd = [...commandPrefix, "gateway", flags.startSubcommand];
-      startResult = runCommand(startCmd, env, false);
-      if (startResult.code !== 0) {
-        throw new Error(
-          "Failed to start Hermes gateway.\n" +
-            `command: ${startCmd.join(" ")}\n` +
-            `output:\n${summarizeOutput(startResult)}`,
-        );
+      const startResult = runCommand(startCmd, env, false);
+      startAttempt = { mode: "service_start", command: startCmd, result: startResult };
+
+      if (startResult.code !== 0 && flags.startSubcommand === "start" && serviceLooksUnavailable(startResult)) {
+        const installCmd = [...commandPrefix, "gateway", "install"];
+        const installResult = runCommand(installCmd, env, false);
+        if (installResult.code === 0) {
+          const retryResult = runCommand(startCmd, env, false);
+          startAttempt = {
+            mode: "service_install_start",
+            command: startCmd,
+            result: retryResult,
+          };
+        }
+      }
+
+      if (startAttempt.result.code !== 0) {
+        const runCmd = [...commandPrefix, "gateway", "run"];
+        startAttempt = {
+          mode: "manual_run_detached",
+          command: runCmd,
+          result: runDetachedCommand(runCmd, env),
+        };
       }
     }
 
-    const statusAfter = runCommand(statusCmd, env, false);
+    let statusAfter = waitForRunning(statusCmd, env);
+    if (!statusIsRunning(statusAfter) && startAttempt && startAttempt.mode !== "manual_run_detached") {
+      const runCmd = [...commandPrefix, "gateway", "run"];
+      startAttempt = {
+        mode: "manual_run_detached",
+        command: runCmd,
+        result: runDetachedCommand(runCmd, env),
+      };
+      statusAfter = waitForRunning(statusCmd, env);
+    }
     if (!statusIsRunning(statusAfter)) {
       throw new Error(
         "Hermes gateway did not report a running state after startup.\n" +
           `command: ${statusCmd.join(" ")}\n` +
-          `output:\n${summarizeOutput(statusAfter)}`,
+          `start_mode: ${startAttempt?.mode || "already_running"}\n` +
+          `start_output:\n${startAttempt ? summarizeOutput(startAttempt.result) : ""}\n` +
+          `status_output:\n${summarizeOutput(statusAfter)}`,
       );
     }
 
@@ -191,9 +265,11 @@ function main(): number {
       profile_dir: profileDir,
       already_running: alreadyRunning,
       start_subcommand: flags.startSubcommand,
+      start_mode: startAttempt?.mode || "already_running",
       status_before: statusBefore,
       status_after: statusAfter,
-      start_result: startResult,
+      start_result: startAttempt?.result || null,
+      start_command: startAttempt?.command || null,
     };
     if (flags.json) {
       process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);

@@ -22,6 +22,7 @@ interface Flags {
   homeChannelName: string;
   hermes: string;
   node: string;
+  inheritKeys: string;
   dryRun: boolean;
   json: boolean;
 }
@@ -45,6 +46,7 @@ function parseArgs(argv: string[]): Flags {
     homeChannelName: "",
     hermes: "hermes",
     node: "node",
+    inheritKeys: "",
     dryRun: false,
     json: false,
   };
@@ -92,6 +94,7 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--home-channel-name") { const [v, j] = take(i); flags.homeChannelName = v; i = j; continue; }
     if (token === "--hermes") { const [v, j] = take(i); flags.hermes = v; i = j; continue; }
     if (token === "--node") { const [v, j] = take(i); flags.node = v; i = j; continue; }
+    if (token === "--inherit-keys") { const [v, j] = take(i); flags.inheritKeys = v; i = j; continue; }
     if (token === "--dry-run") { flags.dryRun = true; continue; }
     if (token === "--json") { flags.json = true; continue; }
   }
@@ -121,6 +124,19 @@ function loadOrCreatePayload(flags: Flags, authScript: string): Record<string, u
     throw new Error(((result.stderr || result.stdout) || "").trim());
   }
   return JSON.parse(result.stdout || "{}") as Record<string, unknown>;
+}
+
+function maskSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => maskSecrets(item));
+  if (!value || typeof value !== "object") return value;
+  const masked: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    masked[key] = normalized === "apikey" || normalized.endsWith("apikey")
+      ? (String(child ?? "").trim() ? "ak_***" : "")
+      : maskSecrets(child);
+  }
+  return masked;
 }
 
 function main(): number {
@@ -163,6 +179,7 @@ function main(): number {
     if (flags.allowAllUsers) cmd.push("--allow-all-users", flags.allowAllUsers);
     if (flags.homeChannel) cmd.push("--home-channel", flags.homeChannel);
     if (flags.homeChannelName) cmd.push("--home-channel-name", flags.homeChannelName);
+    if (flags.inheritKeys) cmd.push("--inherit-keys", flags.inheritKeys);
     if (flags.dryRun) cmd.push("--dry-run");
     if (flags.json) cmd.push("--json");
 
@@ -178,7 +195,7 @@ function main(): number {
       const stdout = (bindResult.stdout || "").trim();
       const payload = {
         ok: true,
-        created_agent: createdPayload,
+        created_agent: maskSecrets(createdPayload),
         bind_result: stdout ? JSON.parse(stdout) : null,
       };
       process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);

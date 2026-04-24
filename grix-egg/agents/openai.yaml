@@ -13,9 +13,18 @@ interface:
 
     On failure: read the step/suggestion in the error JSON, then retry with --resume using the same --install-id.
 
-    Route: --route create_new (default, from scratch) or existing (reinstall to an existing agent with auto-backup).
+    Decision rules:
+    1. Always use node scripts/bootstrap.js ... --json; do not call internal scripts.
+    2. Default to create_new by omitting --route; the script auto-selects WS or HTTP.
+    3. Use --route existing only when the user explicitly wants to bind an existing agent or complete credentials are already available.
+    4. For existing, prefer --bind-json <FILE> over putting --api-key directly on the command line.
+    5. Resume checkpoints never contain plaintext api_key; if create finished but bind did not, continue with --route existing and explicit credentials.
 
-    Path auto-detection: WS when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are present; HTTP when only --access-token is provided. No manual selection needed.
+    Profile names must match [a-z0-9][a-z0-9_-]{0,63}; pass --profile-name when --agent-name is not a valid profile name.
+
+    Route: --route create_new (default, from scratch) or existing (bind an existing agent with --agent-id/--api-endpoint/--api-key or --bind-json, with auto-backup).
+
+    Path auto-detection: WS when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are present; HTTP when only --access-token is provided; existing when explicit existing credentials are provided.
 
 policy:
   allow_implicit_invocation: true

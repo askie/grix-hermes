@@ -42,7 +42,21 @@ function expandHome(value: string): string {
 }
 
 function ensureDir(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
+  fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dirPath, 0o700);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+}
+
+function writePrivateFile(filePath: string, contents: string): void {
+  fs.writeFileSync(filePath, contents, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
 }
 
 function resolveDefaultHermesHome(): string {
@@ -152,10 +166,20 @@ function applyEnvChanges(
   }
 
   ensureDir(path.dirname(envPath));
-  fs.writeFileSync(envPath, `${resultLines.join("\n").trimEnd()}\n`, "utf8");
+  writePrivateFile(envPath, `${resultLines.join("\n").trimEnd()}\n`);
   return {
     env_path: envPath,
     changed_keys: [...new Set(changedKeys)].sort(),
+  };
+}
+
+function maskPlanForOutput(plan: Plan): Plan {
+  return {
+    ...plan,
+    env_updates: {
+      ...plan.env_updates,
+      GRIX_API_KEY: plan.env_updates.GRIX_API_KEY ? "ak_***" : "",
+    },
   };
 }
 
@@ -600,7 +624,7 @@ function main(): number {
       env_result: envResult,
       config_result: configResult,
       command_results: commandResults,
-      ...plan,
+      ...maskPlanForOutput(plan),
     };
     if (flags.json) {
       process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);

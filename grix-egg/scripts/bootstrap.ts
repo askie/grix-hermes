@@ -52,6 +52,7 @@ function isoNow(): string {
 
 const STEP_NAMES = ["detect", "install", "create", "bind", "soul", "gateway", "accept"] as const;
 type StepName = (typeof STEP_NAMES)[number];
+type CreatePath = "ws" | "http" | "existing" | "";
 
 type StepStatus = "pending" | "done" | "failed" | "skipped";
 
@@ -68,7 +69,7 @@ interface StateFile {
   agent_name: string;
   profile_name: string;
   route: string;
-  path: "ws" | "http" | "";
+  path: CreatePath;
   started_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -95,6 +96,13 @@ interface Flags {
   probeMessage: string;
   expectedSubstring: string;
   memberIds: string;
+  memberTypes: string;
+  agentId: string;
+  apiEndpoint: string;
+  apiKey: string;
+  bindJson: string;
+  acceptTimeoutSeconds: string;
+  acceptPollIntervalSeconds: string;
   resume: boolean;
   dryRun: boolean;
   json: boolean;
@@ -104,6 +112,14 @@ interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+interface RuntimeCredentials {
+  agentId: string;
+  agentName: string;
+  apiEndpoint: string;
+  apiKey: string;
+  profileName: string;
 }
 
 class BootstrapError extends Error {
@@ -159,6 +175,52 @@ function appendTextFlag(cmd: string[], flag: string, value: unknown): void {
   if (text) cmd.push(flag, text);
 }
 
+function cleanList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => cleanText(item)).filter(Boolean);
+  return cleanText(value).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function ensurePrivateDir(dirPath: string): void {
+  fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dirPath, 0o700);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+}
+
+function writePrivateFileAtomic(filePath: string, contents: string): void {
+  const tmpPath = filePath + ".tmp";
+  fs.writeFileSync(tmpPath, contents, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.chmodSync(tmpPath, 0o600);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+  fs.renameSync(tmpPath, filePath);
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort on filesystems that do not support POSIX permissions.
+  }
+}
+
+function redactStateValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactStateValue(item));
+  if (!value || typeof value !== "object") return value;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (normalized === "apikey" || normalized.endsWith("apikey")) {
+      result[key] = cleanText(child) ? "ak_***" : "";
+      continue;
+    }
+    result[key] = redactStateValue(child);
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Section 4: State file management
 // ---------------------------------------------------------------------------
@@ -197,11 +259,9 @@ function loadState(filePath: string): StateFile | null {
 
 function saveState(filePath: string, state: StateFile): void {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  ensurePrivateDir(dir);
   state.updated_at = isoNow();
-  const tmpPath = filePath + ".tmp";
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf8");
-  fs.renameSync(tmpPath, filePath);
+  writePrivateFileAtomic(filePath, JSON.stringify(redactStateValue(state), null, 2));
 }
 
 function markStepDone(state: StateFile, step: StepName, result: Record<string, unknown>): void {
@@ -245,6 +305,13 @@ function parseArgs(argv: string[]): Flags {
     probeMessage: "",
     expectedSubstring: "",
     memberIds: "",
+    memberTypes: "",
+    agentId: "",
+    apiEndpoint: "",
+    apiKey: "",
+    bindJson: "",
+    acceptTimeoutSeconds: "15",
+    acceptPollIntervalSeconds: "1",
     resume: false,
     dryRun: false,
     json: false,
@@ -271,6 +338,13 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--probe-message" && next !== undefined) { flags.probeMessage = next; i += 1; continue; }
     if (token === "--expected-substring" && next !== undefined) { flags.expectedSubstring = next; i += 1; continue; }
     if (token === "--member-ids" && next !== undefined) { flags.memberIds = next; i += 1; continue; }
+    if (token === "--member-types" && next !== undefined) { flags.memberTypes = next; i += 1; continue; }
+    if (token === "--agent-id" && next !== undefined) { flags.agentId = next; i += 1; continue; }
+    if (token === "--api-endpoint" && next !== undefined) { flags.apiEndpoint = next; i += 1; continue; }
+    if (token === "--api-key" && next !== undefined) { flags.apiKey = next; i += 1; continue; }
+    if (token === "--bind-json" && next !== undefined) { flags.bindJson = next; i += 1; continue; }
+    if (token === "--accept-timeout-seconds" && next !== undefined) { flags.acceptTimeoutSeconds = next; i += 1; continue; }
+    if (token === "--accept-poll-interval-seconds" && next !== undefined) { flags.acceptPollIntervalSeconds = next; i += 1; continue; }
     if (token === "--resume") { flags.resume = true; continue; }
     if (token === "--dry-run") { flags.dryRun = true; continue; }
     if (token === "--json") { flags.json = true; continue; }
@@ -368,6 +442,28 @@ function stepDetect(
 ): void {
   if (stepIsDone(state, "detect")) return;
 
+  const route = cleanText(flags.route) || "create_new";
+  if (route !== "create_new" && route !== "existing") {
+    throw new BootstrapError(
+      "detect", 1,
+      `不支持的 route: ${route}`,
+      "使用 --route create_new 创建新 agent，或 --route existing 绑定已有 agent 凭证。",
+      `unsupported route=${route}`,
+    );
+  }
+  if (route === "existing") {
+    if (!cleanText(flags.bindJson) && (!cleanText(flags.agentId) || !cleanText(flags.apiEndpoint) || !cleanText(flags.apiKey))) {
+      throw new BootstrapError(
+        "detect", 1,
+        "--route existing 需要提供 --agent-id、--api-endpoint、--api-key，或提供 --bind-json",
+        "已有 agent 绑定必须显式提供完整凭证；不要从 checkpoint 或终端脱敏输出里恢复 API key。",
+        "missing existing bind credentials",
+      );
+    }
+    markStepDone(state, "detect", { path: "existing" });
+    return;
+  }
+
   const useWs = hasWsCredentials({ hermesHome });
   if (useWs) {
     markStepDone(state, "detect", { path: "ws" });
@@ -437,6 +533,75 @@ function copyDirRecursive(src: string, dest: string): void {
   }
 }
 
+function normalizeBindPayload(payload: Record<string, unknown>, flags: Flags): RuntimeCredentials | null {
+  const handoff = extractNested(payload, "handoff");
+  const bindHermes = extractNested(payload, "bind_hermes");
+  const handoffBindHermes = extractNested(handoff, "bind_hermes");
+  const bindLocal = extractNested(payload, "bind_local");
+  const handoffBindLocal = extractNested(handoff, "bind_local");
+  const source = Object.keys(bindHermes).length > 0
+    ? bindHermes
+    : Object.keys(handoffBindHermes).length > 0
+      ? handoffBindHermes
+      : Object.keys(bindLocal).length > 0
+        ? bindLocal
+        : Object.keys(handoffBindLocal).length > 0
+          ? handoffBindLocal
+          : payload;
+
+  const agentName = cleanText(source.agent_name || source.name || flags.agentName);
+  const profileName = cleanText(source.profile_name || agentName || flags.profileName);
+  const credentials: RuntimeCredentials = {
+    agentId: cleanText(source.agent_id || source.id),
+    agentName,
+    apiEndpoint: cleanText(source.api_endpoint || source.endpoint),
+    apiKey: cleanText(source.api_key),
+    profileName,
+  };
+  return credentials.agentId && credentials.apiEndpoint && credentials.apiKey
+    ? credentials
+    : null;
+}
+
+function credentialsFromFlags(flags: Flags): RuntimeCredentials | null {
+  const bindJson = cleanText(flags.bindJson);
+  if (bindJson) {
+    const raw = bindJson === "-"
+      ? fs.readFileSync(0, "utf8")
+      : fs.readFileSync(expandHome(bindJson), "utf8");
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    return normalizeBindPayload(payload, flags);
+  }
+
+  const agentId = cleanText(flags.agentId);
+  const apiEndpoint = cleanText(flags.apiEndpoint);
+  const apiKey = cleanText(flags.apiKey);
+  if (!agentId && !apiEndpoint && !apiKey) return null;
+
+  return agentId && apiEndpoint && apiKey
+    ? {
+        agentId,
+        agentName: cleanText(flags.agentName),
+        apiEndpoint,
+        apiKey,
+        profileName: cleanText(flags.profileName) || cleanText(flags.agentName),
+      }
+    : null;
+}
+
+function requireExistingCredentials(flags: Flags): RuntimeCredentials {
+  const credentials = credentialsFromFlags(flags);
+  if (!credentials) {
+    throw new BootstrapError(
+      "detect", 1,
+      "--route existing 需要提供 --agent-id、--api-endpoint、--api-key，或提供 --bind-json",
+      "已有 agent 绑定必须显式提供完整凭证；不要从 checkpoint 或终端脱敏输出里恢复 API key。",
+      "missing existing bind credentials",
+    );
+  }
+  return credentials;
+}
+
 function stepInstall(
   flags: Flags,
   state: StateFile,
@@ -462,15 +627,18 @@ function stepCreate(
   scripts: ScriptPaths,
   hermesHome: string,
   env: NodeJS.ProcessEnv,
-): void {
-  if (stepIsDone(state, "create")) return;
+): RuntimeCredentials | null {
+  if (stepIsDone(state, "create")) return credentialsFromFlags(flags);
 
   const detectedPath = state.steps.detect?.result?.["path"];
   if (detectedPath === "ws") {
-    stepCreateWs(flags, state, scripts, env);
-  } else {
-    stepCreateHttp(flags, state, scripts, hermesHome, env);
+    return stepCreateWs(flags, state, scripts, env);
   }
+  if (detectedPath === "existing") {
+    return stepCreateExisting(flags, state);
+  }
+  stepCreateHttp(flags, state, scripts, hermesHome, env);
+  return null;
 }
 
 function stepCreateWs(
@@ -478,7 +646,7 @@ function stepCreateWs(
   state: StateFile,
   scripts: ScriptPaths,
   env: NodeJS.ProcessEnv,
-): void {
+): RuntimeCredentials {
   const cmd = [flags.node, scripts.adminScript, "--action", "create_grix"];
   appendTextFlag(cmd, "--agent-name", flags.agentName);
   appendTextFlag(cmd, "--introduction", flags.agentName);
@@ -494,10 +662,10 @@ function stepCreateWs(
   const apiKey = cleanText(createdAgent.api_key);
   const agentName = cleanText(createdAgent.agent_name || createdAgent.name || flags.agentName);
 
-  if (!agentId || !apiEndpoint) {
+  if (!agentId || !apiEndpoint || !apiKey) {
     throw new BootstrapError(
       "create", 3,
-      `WS 创建 agent 未返回有效凭证。agent_id=${agentId}, api_endpoint=${apiEndpoint}`,
+      `WS 创建 agent 未返回有效凭证。agent_id=${agentId}, api_endpoint=${apiEndpoint}, api_key=${apiKey ? "ak_***" : ""}`,
       "检查 WS 连接和 GRIX_API_KEY 是否有效。确认 agent_api_create 接口正常。",
       result.stderr || result.stdout,
     );
@@ -511,10 +679,27 @@ function stepCreateWs(
     api_key: apiKey ? "ak_***" : "",
   });
 
-  // Store full credentials internally (not in the state file's visible result)
-  state.steps.create.result!._agent_id = agentId;
-  state.steps.create.result!._api_endpoint = apiEndpoint;
-  state.steps.create.result!._api_key = apiKey;
+  return {
+    agentId,
+    agentName,
+    apiEndpoint,
+    apiKey,
+    profileName: cleanText(flags.profileName) || flags.agentName,
+  };
+}
+
+function stepCreateExisting(flags: Flags, state: StateFile): RuntimeCredentials {
+  const credentials = requireExistingCredentials(flags);
+  markStepDone(state, "create", {
+    path: "existing",
+    agent_id: credentials.agentId,
+    agent_name: credentials.agentName,
+    api_endpoint: credentials.apiEndpoint,
+    api_key: credentials.apiKey ? "ak_***" : "",
+    profile_name: credentials.profileName,
+  });
+  state.profile_name = credentials.profileName;
+  return credentials;
 }
 
 function stepCreateHttp(
@@ -535,6 +720,7 @@ function stepCreateHttp(
     "--install-dir", installDir,
     "--profile-name", profileName,
     "--is-main", flags.isMain,
+    "--inherit-keys", "global",
     "--json",
   ];
   appendTextFlag(cmd, "--base-url", flags.baseUrl);
@@ -567,9 +753,6 @@ function stepCreateHttp(
     api_key: apiKey ? "ak_***" : "",
     profile_name: resolvedProfileName,
   });
-  state.steps.create.result!._agent_id = agentId;
-  state.steps.create.result!._api_endpoint = apiEndpoint;
-  state.steps.create.result!._api_key = apiKey;
 }
 
 function stepBind(
@@ -578,6 +761,7 @@ function stepBind(
   scripts: ScriptPaths,
   hermesHome: string,
   env: NodeJS.ProcessEnv,
+  credentials: RuntimeCredentials | null,
 ): void {
   if (stepIsDone(state, "bind")) return;
 
@@ -597,20 +781,21 @@ function stepBind(
     return;
   }
 
-  // WS path: need to run bind_local separately
-  const agentId = cleanText(createResult?._agent_id);
-  const agentName = cleanText(createResult?.agent_name) || flags.agentName;
-  const apiEndpoint = cleanText(createResult?._api_endpoint);
-  const apiKey = cleanText(createResult?._api_key);
+  // WS and existing paths bind with credentials kept in memory for this process.
+  const runtimeCredentials = credentials || credentialsFromFlags(flags);
+  const agentId = cleanText(runtimeCredentials?.agentId || createResult?.agent_id);
+  const agentName = cleanText(runtimeCredentials?.agentName || createResult?.agent_name) || flags.agentName;
+  const apiEndpoint = cleanText(runtimeCredentials?.apiEndpoint || createResult?.api_endpoint);
+  const apiKey = cleanText(runtimeCredentials?.apiKey);
   const installDir = cleanText(flags.installDir) || defaultInstallDir(hermesHome);
-  const profileName = cleanText(flags.profileName) || flags.agentName;
+  const profileName = cleanText(runtimeCredentials?.profileName || flags.profileName) || flags.agentName;
 
-  if (!agentId || !apiEndpoint) {
+  if (!agentId || !apiEndpoint || !apiKey) {
     throw new BootstrapError(
       "bind", 4,
-      "绑定需要 create 步骤的 agent_id 和 api_endpoint",
-      "create 步骤可能未完成或结果丢失。使用 --resume 从 create 步骤重试。",
-      `agent_id=${agentId}, api_endpoint=${apiEndpoint}`,
+      "绑定需要 agent_id、api_endpoint 和未脱敏 api_key",
+      "如果是在 create 后中断再 --resume，请改用 --route existing 并显式提供 --agent-id、--api-endpoint、--api-key 或 --bind-json。",
+      `agent_id=${agentId}, api_endpoint=${apiEndpoint}, api_key=${apiKey ? "ak_***" : ""}`,
     );
   }
 
@@ -731,14 +916,28 @@ async function stepAccept(
     return;
   }
 
+  const createResult = state.steps.create?.result;
+  const targetAgentId = cleanText(createResult?.agent_id || flags.agentId);
+  if (!targetAgentId) {
+    throw new BootstrapError(
+      "accept", 7,
+      "验收需要目标 agent_id，但 create 步骤没有记录 agent_id",
+      "检查 create 步骤是否成功；已有 agent 路径请提供 --agent-id。",
+      "missing target agent_id",
+    );
+  }
+
   // Create test group
   const groupCmd = [
     flags.node, scripts.groupScript,
     "--action", "create",
     "--name", `验收测试-${state.agent_name}`,
   ];
-  const memberIds = cleanText(flags.memberIds);
-  if (memberIds) groupCmd.push("--member-ids", memberIds);
+  const acceptanceMembers = buildAcceptanceMembers(targetAgentId, flags.memberIds, flags.memberTypes);
+  if (acceptanceMembers.memberIds.length > 0) {
+    groupCmd.push("--member-ids", acceptanceMembers.memberIds.join(","));
+    groupCmd.push("--member-types", acceptanceMembers.memberTypes.join(","));
+  }
   const groupResult = runCommand(groupCmd, { env });
   const groupPayload = parseJsonOutput(groupResult);
   const acceptanceSessionId = extractSessionId(groupPayload);
@@ -770,14 +969,21 @@ async function stepAccept(
   }
 
   // Send probe message to test group
-  runCommand([flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", probeMessage], { env });
+  const probeSentAtMs = Date.now();
+  const probeSendResult = runCommand(
+    [flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", probeMessage],
+    { env },
+  );
+  const probeSendPayload = parseJsonOutput(probeSendResult);
+  const probeMessageId = extractMessageId(probeSendPayload);
 
-  // Poll message history for expected substring
-  const timeoutSeconds = 15;
-  const pollInterval = 1;
+  // Poll message history for the target agent's reply after the probe.
+  const timeoutSeconds = parsePositiveFloat(flags.acceptTimeoutSeconds, 15);
+  const pollInterval = parsePositiveFloat(flags.acceptPollIntervalSeconds, 1);
   const expectedLower = expectedSubstring.toLowerCase();
   const deadline = Date.now() + timeoutSeconds * 1000;
   let lastQuery: Record<string, unknown> = {};
+  let lastCandidateCount = 0;
 
   while (Date.now() < deadline) {
     const queryResult = runCommand([
@@ -787,14 +993,26 @@ async function stepAccept(
       "--limit", "10",
     ], { env });
     lastQuery = parseJsonOutput(queryResult);
-    const haystack = JSON.stringify(lastQuery).toLowerCase();
-    if (haystack.includes(expectedLower)) {
+    const messages = extractMessageRecords(lastQuery);
+    lastCandidateCount = messages.length;
+    const verifiedMessage = messages.find((message) =>
+      messageMatchesAcceptance({
+        message,
+        targetAgentId,
+        expectedLower,
+        probeMessageId,
+        probeSentAtMs,
+      }),
+    );
+    if (verifiedMessage) {
       markStepDone(state, "accept", {
         session_id: acceptanceSessionId,
         verified: true,
+        target_agent_id: targetAgentId,
         probe_message: probeMessage,
+        probe_message_id: probeMessageId,
         expected_substring: expectedSubstring,
-        query_result: lastQuery,
+        verified_message: verifiedMessage,
       });
       return;
     }
@@ -805,7 +1023,7 @@ async function stepAccept(
     "accept", 7,
     `验收超时：agent 未在 ${timeoutSeconds} 秒内回复包含「${expectedSubstring}」的内容`,
     "检查：(1) SOUL.md 内容是否正确，(2) 网关是否在线（hermes --profile <name> gateway status），(3) agent 是否已连接到 Grix。",
-    `last_query: ${JSON.stringify(lastQuery)}`,
+    `target_agent_id=${targetAgentId}, probe_message_id=${probeMessageId}, candidates=${lastCandidateCount}, last_query=${JSON.stringify(lastQuery)}`,
   );
 }
 
@@ -834,6 +1052,196 @@ function extractSessionId(payload: Record<string, unknown>): string {
     }
   }
   return "";
+}
+
+function buildAcceptanceMembers(
+  targetAgentId: string,
+  memberIdsText: string,
+  memberTypesText: string,
+): { memberIds: string[]; memberTypes: string[] } {
+  const memberIds = cleanList(memberIdsText);
+  const memberTypes = cleanList(memberTypesText);
+  if (memberTypes.length > 0 && memberTypes.length !== memberIds.length) {
+    throw new BootstrapError(
+      "accept", 7,
+      "--member-types 数量必须和 --member-ids 一致",
+      "批量验收成员请同时提供一一对应的 --member-ids 和 --member-types；不提供 member-types 时默认用户类型为 1。",
+      `member_ids=${memberIds.length}, member_types=${memberTypes.length}`,
+    );
+  }
+
+  const pairs = memberIds.map((id, index) => ({
+    id,
+    type: memberTypes[index] || "1",
+  }));
+  const existingTarget = pairs.find((pair) => pair.id === targetAgentId);
+  if (existingTarget) {
+    existingTarget.type = existingTarget.type || "2";
+  } else {
+    pairs.push({ id: targetAgentId, type: "2" });
+  }
+
+  return {
+    memberIds: pairs.map((pair) => pair.id),
+    memberTypes: pairs.map((pair) => pair.type),
+  };
+}
+
+function parsePositiveFloat(value: unknown, fallback: number): number {
+  const parsed = Number.parseFloat(cleanText(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function validateProfileName(profileName: string): void {
+  if (!/^(default|[a-z0-9][a-z0-9_-]{0,63})$/.test(profileName)) {
+    throw new Error(
+      `Invalid Hermes profile name: ${profileName}. Must match [a-z0-9][a-z0-9_-]{0,63}`,
+    );
+  }
+}
+
+function extractMessageId(payload: unknown): string {
+  const record = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : null;
+  if (!record) return "";
+  for (const key of ["message_id", "messageId", "msg_id", "msgId", "id"]) {
+    const value = cleanText(record[key]);
+    if (value) return value;
+  }
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      const nested = extractMessageId(value);
+      if (nested) return nested;
+    }
+  }
+  return "";
+}
+
+function extractMessageRecords(payload: unknown): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  collectMessageRecords(payload, results, 0);
+  return results;
+}
+
+function collectMessageRecords(value: unknown, results: Record<string, unknown>[], depth: number): void {
+  if (depth > 8 || !value) return;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const record = item as Record<string, unknown>;
+        if (looksLikeMessageRecord(record)) results.push(record);
+        collectMessageRecords(record, results, depth + 1);
+      }
+    }
+    return;
+  }
+  if (typeof value !== "object") return;
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    collectMessageRecords(child, results, depth + 1);
+  }
+}
+
+function looksLikeMessageRecord(record: Record<string, unknown>): boolean {
+  return Boolean(
+    extractMessageText(record) ||
+      extractMessageId(record) ||
+      extractSenderIds(record).length > 0,
+  );
+}
+
+function extractMessageText(record: Record<string, unknown>): string {
+  for (const key of ["content", "text", "message", "body", "raw_text", "rawText", "msg_content", "msgContent"]) {
+    const value = record[key];
+    if (typeof value === "string" || typeof value === "number") {
+      const text = cleanText(value);
+      if (text) return text;
+    }
+  }
+  for (const key of ["content", "message", "payload"]) {
+    const nested = extractNested(record, key);
+    if (Object.keys(nested).length > 0) {
+      const text = extractMessageText(nested);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function extractSenderIds(record: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const push = (value: unknown): void => {
+    const text = cleanText(value);
+    if (text && !ids.includes(text)) ids.push(text);
+  };
+  for (const key of [
+    "sender_id",
+    "senderId",
+    "from_id",
+    "fromId",
+    "author_id",
+    "authorId",
+    "agent_id",
+    "agentId",
+    "member_id",
+    "memberId",
+    "user_id",
+    "userId",
+  ]) {
+    push(record[key]);
+  }
+  for (const key of ["sender", "from", "author", "agent", "member", "user"]) {
+    const nested = extractNested(record, key);
+    if (Object.keys(nested).length === 0) continue;
+    for (const idKey of ["id", "agent_id", "agentId", "user_id", "userId", "member_id", "memberId"]) {
+      push(nested[idKey]);
+    }
+  }
+  return ids;
+}
+
+function parseNumericId(value: string): bigint | null {
+  const text = cleanText(value);
+  return /^\d+$/.test(text) ? BigInt(text) : null;
+}
+
+function extractMessageTimeMs(record: Record<string, unknown>): number | null {
+  for (const key of ["created_at", "createdAt", "timestamp", "time", "msg_time", "msgTime", "send_time", "sendTime"]) {
+    const value = record[key];
+    if (typeof value === "number") {
+      return value > 9999999999 ? value : value * 1000;
+    }
+    const text = cleanText(value);
+    if (!text) continue;
+    if (/^\d+$/.test(text)) {
+      const numeric = Number.parseInt(text, 10);
+      return numeric > 9999999999 ? numeric : numeric * 1000;
+    }
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function messageMatchesAcceptance(params: {
+  message: Record<string, unknown>;
+  targetAgentId: string;
+  expectedLower: string;
+  probeMessageId: string;
+  probeSentAtMs: number;
+}): boolean {
+  const text = extractMessageText(params.message).toLowerCase();
+  if (!text.includes(params.expectedLower)) return false;
+  if (!extractSenderIds(params.message).includes(params.targetAgentId)) return false;
+
+  const messageId = parseNumericId(extractMessageId(params.message));
+  const probeId = parseNumericId(params.probeMessageId);
+  if (messageId !== null && probeId !== null) return messageId > probeId;
+
+  const messageTime = extractMessageTimeMs(params.message);
+  if (messageTime !== null) return messageTime >= params.probeSentAtMs - 1000;
+
+  return false;
 }
 
 function sendStatusCard(
@@ -873,11 +1281,14 @@ function buildResumeCommand(flags: Flags): string {
   const parts = ["node", "scripts/bootstrap.js"];
   parts.push("--install-id", flags.installId);
   parts.push("--agent-name", flags.agentName);
+  if (flags.route) parts.push("--route", flags.route);
+  if (flags.profileName) parts.push("--profile-name", flags.profileName);
   if (flags.soulFile) parts.push("--soul-file", flags.soulFile);
   if (flags.soulContent) parts.push("--soul-content", `'${flags.soulContent.slice(0, 30)}...'`);
   if (flags.statusTarget) parts.push("--status-target", flags.statusTarget);
   if (flags.probeMessage) parts.push("--probe-message", flags.probeMessage);
   if (flags.expectedSubstring) parts.push("--expected-substring", flags.expectedSubstring);
+  if (flags.bindJson && flags.bindJson !== "-") parts.push("--bind-json", flags.bindJson);
   parts.push("--resume", "--json");
   return parts.join(" ");
 }
@@ -898,6 +1309,13 @@ async function main(): Promise<number> {
   }
   if (!cleanText(flags.agentName)) {
     process.stderr.write("Missing required flag: --agent-name\n");
+    return 1;
+  }
+  try {
+    validateProfileName(cleanText(flags.profileName) || cleanText(flags.agentName));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
     return 1;
   }
 
@@ -965,12 +1383,12 @@ async function main(): Promise<number> {
 
     // Step 3: create
     currentStep = "create";
-    stepCreate(flags, state, scripts, hermesHome, env);
+    const runtimeCredentials = stepCreate(flags, state, scripts, hermesHome, env);
     saveState(stateFile, state);
 
     // Step 4: bind
     currentStep = "bind";
-    stepBind(flags, state, scripts, hermesHome, env);
+    stepBind(flags, state, scripts, hermesHome, env, runtimeCredentials);
     saveState(stateFile, state);
 
     // Step 5: soul
