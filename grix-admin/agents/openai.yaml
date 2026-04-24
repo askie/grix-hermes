@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Admin"
-  short_description: "Create remote Grix agents via WebSocket and bind local Hermes profiles."
-  default_prompt: "Use $grix-admin to create remote Grix agents via WebSocket when GRIX_ENDPOINT, GRIX_AGENT_ID and GRIX_API_KEY are configured, manage categories, and bind into Hermes profiles. Prefer this over $grix-register whenever WS credentials exist."
+  short_description: "Low-level WS admin for remote Grix agents/categories. Use grix-egg for full Hermes agent bootstrap."
+  default_prompt: "Use $grix-admin only for low-level Grix WS administration: remote API agent creation, category management, status checks, or explicit binding of already-known credentials. Do not use it to bootstrap a new Hermes agent with install/SOUL/gateway/acceptance; use $grix-egg for that full flow."
 
 policy:
   allow_implicit_invocation: true

@@ -1,26 +1,30 @@
 ---
 name: grix-admin
-description: 需要创建远端 Grix API agent、管理分类、并把结果绑定到本地 Hermes profile 时使用。适用于首个 agent 绑定、后续创建并绑定 agent、分类管理。远端步骤通过 `../shared/cli/grix-hermes.js admin`，本地步骤通过 Hermes profile 机制完成。
+description: 底层 Grix WS 管理技能。用于远端 Grix API agent 创建、分类管理、状态查询；本地 Hermes profile 绑定只作为 `grix-egg` 或明确已有凭证场景的 helper。完整新 Hermes agent 孵化必须使用 `grix-egg`。
 ---
 
 # Grix Admin
 
-这个技能负责三件事：
+这个技能负责底层管理动作，不是完整 Hermes agent 孵化入口。
 
-1. 远端 Grix agent / 分类管理
-2. 远端 agent 创建后自动将密钥写入 `.env`（不再输出明文密钥）
-3. 本地 Hermes profile 绑定和校验
+## 职责边界
 
-## Mode A: bind-hermes
+1. 远端 Grix API agent / 分类管理
+2. 远端 agent 状态查询和密钥配置
+3. 本地 Hermes profile 绑定 helper（仅限 `grix-egg` 调用，或用户明确要求绑定已有 agent 凭证）
 
-当上下文已经给出：
+如果用户要“建立 / 孵化 / 安装 / 验收一个新的 Hermes agent”，不要使用本技能串流程，直接使用 `grix-egg` 的 `node scripts/bootstrap.js ... --json` 主入口。
+
+## Mode A: explicit-bind-helper（bind-hermes handoff）
+
+这是底层 helper。只有在 `grix-egg` 内部调用，或用户已经明确给出下面完整已有凭证时，才直接使用：
 
 - `agent_name`
 - `agent_id`
 - `api_endpoint`
 - `api_key`
 
-就直接做本地绑定，不做远端创建。
+就直接做本地绑定，不做远端创建，不写 `SOUL.md`，不启动 gateway，也不做验收。
 
 ### 本地绑定主线
 
@@ -127,9 +131,9 @@ CLI 显式传入的参数优先于 JSON 中提取的字段。
 - 不要手工拼接另一套本地 agent 结构
 - 不要在这里顺手安装或升级整个技能包
 
-## Mode B: create-and-bind
+## Mode B: ws-admin-create
 
-如果还没有远端 agent，就先创建。
+只做远端 WS 管理创建。不要把这个模式当成新的 Hermes agent 完整孵化流程；需要安装技能包、写 `SOUL.md`、启动 gateway、验收目标 agent 回复时，转用 `grix-egg`。
 
 ### 远端创建
 
@@ -156,7 +160,7 @@ node scripts/admin.js --action create_grix --agent-name <NAME> --category-name <
 
 如果不传 `--env-file`，行为与之前一致（密钥明文输出到 stdout），仅用于向后兼容。
 
-创建成功后，密钥已写入 `.env`，继续走 Hermes 绑定 helper：
+如果用户明确只需要把这个远端创建结果绑定到一个已有/指定 profile，可以继续走底层绑定 helper：
 
 ```bash
 node scripts/bind_local.js \
@@ -230,10 +234,11 @@ node scripts/admin.js --action assign_category --agent-id <AGENT_ID> --category-
 ## Guardrails
 
 - 远端动作不要改走 HTTP
+- 用户要求建立、孵化、安装或验收新的 Hermes agent 时，必须转用 `grix-egg`，不要在本技能里手工串联流程
 - `create_grix` 表示"创建远端 Grix API agent"，不要把它理解成创建本地 Hermes agent
 - `create_grix` 传了 `--env-file` 时，密钥直接写入文件，不输出明文到 stdout；不传则向后兼容输出明文
 - 不要将明文 API key 输出到聊天窗口或日志，密钥只应出现在 `.env` 文件和临时备份文件中
-- 当前执行环境已有 Grix WS 运行时凭证（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）时，创建远端 agent **必须走 `grix-admin`**，不要走 `grix-register`。只有没有 WS 凭证的新环境才需要 `grix-register`
+- 当前执行环境已有 Grix WS 运行时凭证（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）且任务只是远端管理时，创建远端 agent 走 `grix-admin`。完整 Hermes agent 孵化仍走 `grix-egg`
 - 本地绑定只走 Hermes `profile`、`.env`、`config.yaml`
 - 除非上层明确要求覆盖，不要破坏已存在的 profile 身份文件
 - 安装私聊进行中时，不要主动重启 gateway

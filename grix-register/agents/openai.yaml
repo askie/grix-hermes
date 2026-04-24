@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Register"
   short_description: "Register Grix via HTTP when no WS credentials are available."
-  default_prompt: "Use $grix-register ONLY when the current environment has NO Grix WS credentials (GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY). Handles account registration, email verification, login, and API agent creation via HTTP. If WS credentials exist, use $grix-admin instead."
+  default_prompt: "Use $grix-register only for low-level HTTP registration, email verification, login, and API agent creation when no WS credentials are available. Do not use it for a full Hermes agent bootstrap with install/SOUL/gateway/acceptance; use $grix-egg for that full flow."
 
 policy:
   allow_implicit_invocation: true

@@ -63,8 +63,8 @@ Each of the 9 skills follows this layout:
 
 | Skill | Role |
 |---|---|
-| `grix-admin` | Remote agent creation + local Hermes profile binding |
-| `grix-egg` | Full install-flow orchestrator (WS or HTTP path) |
+| `grix-admin` | Low-level WS admin for remote agents/categories; explicit bind helper |
+| `grix-egg` | Full Hermes agent install-flow orchestrator (WS or HTTP path) |
 | `grix-group` | Grix group lifecycle (CRUD, members, roles) |
 | `grix-query` | Read-only: contact/session/message lookup |
 | `grix-register` | HTTP-based Grix registration + first-agent bootstrap |
@@ -76,7 +76,7 @@ Each of the 9 skills follows this layout:
 ### Core patterns
 
 - **Thin-shim pattern**: Most skill scripts (`group.ts`, `query.ts`, `send.ts`, `unsend.ts`, `admin.ts`, `grix-key-rotate.ts`) are 3-line files importing `runSharedCliAction` from `shared/cli/skill-wrapper.ts`, delegating to the shared WS CLI. Real logic lives in `shared/cli/`.
-- **Dual-path routing**: WS path (grix-admin) used when `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` are present; HTTP path (grix-register) as fallback.
+- **Dual-path routing**: Full Hermes agent bootstraps enter through `grix-egg`; it uses the WS admin path when `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` are present, and the HTTP registration path as fallback.
 - **Envelope output**: All scripts output `{ok: true, data}` or `{ok: false, error}` JSON.
 - **Profile management**: `bind_local.ts` + `patch_profile_config.ts` manage Hermes profiles, `.env` files, and `config.yaml` skill visibility.
 

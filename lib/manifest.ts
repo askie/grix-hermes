@@ -13,7 +13,7 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "grix-admin",
     description:
-      "Remote Grix agent creation/category management plus local Hermes profile binding.",
+      "Low-level WS admin for remote Grix agents/categories; explicit local bind helper only.",
   },
   {
     name: "grix-egg",
