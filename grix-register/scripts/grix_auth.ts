@@ -198,7 +198,7 @@ interface AgentResult {
   handoff: {
     target_tool: string;
     task: string;
-    bind_hermes: {
+    bind_local: {
       profile_name: string;
       agent_name: string;
       agent_id: string;
@@ -218,7 +218,7 @@ function buildAgentResult(action: string, result: RequestResult, isMain: boolean
   const apiEndpoint = cleanText(data.api_endpoint);
   const apiKey = cleanText(data.api_key);
   const agentName = cleanText(data.agent_name);
-  const bindHermesPayload = {
+  const bindLocalPayload = {
     profile_name: agentName,
     agent_name: agentName,
     agent_id: agentId,
@@ -227,7 +227,7 @@ function buildAgentResult(action: string, result: RequestResult, isMain: boolean
     is_main: Boolean(isMain),
   };
   const handoffTask = [
-    "bind-hermes",
+    "grix-egg route=existing",
     `profile_name=${agentName}`,
     `agent_name=${agentName}`,
     `agent_id=${agentId}`,
@@ -249,9 +249,9 @@ function buildAgentResult(action: string, result: RequestResult, isMain: boolean
     api_key_hint: cleanText(data.api_key_hint),
     session_id: cleanText(data.session_id),
     handoff: {
-      target_tool: "grix_admin",
+      target_tool: "grix_egg",
       task: handoffTask,
-      bind_hermes: bindHermesPayload,
+      bind_local: bindLocalPayload,
     },
     data,
   };

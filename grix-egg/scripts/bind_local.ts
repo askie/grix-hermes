@@ -559,7 +559,7 @@ function main(): number {
 
     if (/\.{3}/.test(flags.apiKey) && /^ak_\d+\.\.\.[A-Za-z]+$/.test(flags.apiKey)) {
       throw new Error(
-        "GRIX_API_KEY appears to be a masked value. Use --env-file with create_grix or key_rotate to obtain a valid key.",
+        "GRIX_API_KEY appears to be a masked value. Use grix-egg --route existing with a plaintext bind JSON file, or rotate the key before binding.",
       );
     }
     if (!/^ak_\d+_[A-Za-z0-9]+$/.test(flags.apiKey)) {

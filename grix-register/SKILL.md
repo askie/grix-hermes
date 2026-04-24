@@ -1,6 +1,6 @@
 ---
 name: grix-register
-description: 底层 HTTP 注册技能。用于注册 Grix 账号、发送邮箱验证码、登录、创建首个 API agent；本地绑定 helper 只供内部或明确已有凭证场景使用。完整新 Hermes agent 孵化必须使用 `grix-egg`。
+description: 底层 HTTP 注册技能。用于注册 Grix 账号、发送邮箱验证码、登录、创建首个 API agent；不负责本地 Hermes profile 绑定。完整新 Hermes agent 孵化必须使用 `grix-egg`。
 ---
 
 # Grix Register
@@ -68,44 +68,9 @@ node scripts/grix_auth.js create-api-agent \
 
 Agent 复用行为：默认先查找同名 `provider_type=3` agent，找到就复用并轮换 API key。找不到才创建新的。
 
-## 一键创建并绑定 helper
+## 内部工具
 
-这是底层 helper，不是完整 Hermes agent 孵化入口。如果要把"创建 API agent + Hermes 绑定"一次跑完，且不需要写 `SOUL.md`、启动 gateway、做验收，可以用：
-
-```bash
-node scripts/create_api_agent_and_bind.js \
-  --access-token <TOKEN> \
-  --agent-name <NAME> \
-  --avatar-url <AVATAR_URL> \
-  --base-url https://grix.dhf.pub \
-  --profile-name <PROFILE_NAME> \
-  --profile-mode create-or-reuse \
-  --is-main true \
-  --clone-from <SOURCE_PROFILE> \
-  --install-dir ~/.hermes/skills/grix-hermes \
-  --account-id <ACCOUNT_ID> \
-  --allowed-users <USER_1,USER_2> \
-  --allow-all-users true|false \
-  --home-channel <SESSION_ID> \
-  --home-channel-name <CHANNEL_NAME> \
-  --hermes hermes \
-  --node node \
-  --dry-run \
-  --json
-```
-
-如果已经有一份 `create-api-agent` 的 JSON 结果，也可以：
-
-```bash
-node scripts/create_api_agent_and_bind.js \
-  --agent-json-file ./created-agent.json \
-  --profile-name <PROFILE_NAME> \
-  --is-main true \
-  --dry-run \
-  --json
-```
-
-`create_api_agent_and_bind` 内部会先调 `grix_auth create-api-agent`（或读取已有 JSON），再把结果通过 stdin 传给 `grix-admin/scripts/bind_local.js --from-json -`。
+`create_api_agent_and_bind.js` 只作为 `grix-egg` HTTP 路径的内部工具使用。普通调用方不要直接用它做本地 Hermes profile 绑定；需要完整安装、绑定、写 `SOUL.md`、启动 gateway 或验收时，统一转到 `grix-egg`。
 
 ## 主线
 
@@ -119,7 +84,7 @@ node scripts/create_api_agent_and_bind.js \
    - `api_key`
    - `is_main`
    - `session_id`（与远端 agent 的初始会话）
-5. 如需低层本地绑定，继续执行 [grix-admin](../grix-admin/SKILL.md) 的 `explicit-bind-helper`（兼容 `bind-hermes` handoff）
+5. 如需绑定到本地 Hermes profile，继续执行 [grix-egg](../grix-egg/SKILL.md) 的 `--route existing` 路径
 
 ## 返回结构
 
@@ -136,9 +101,9 @@ node scripts/create_api_agent_and_bind.js \
   "api_key": "...",
   "session_id": "...",
   "handoff": {
-    "target_tool": "grix_admin",
-    "task": "bind-hermes\nprofile_name=...\n...",
-    "bind_hermes": {
+    "target_tool": "grix_egg",
+    "task": "grix-egg route=existing\nprofile_name=...\n...",
+    "bind_local": {
       "profile_name": "...",
       "agent_name": "...",
       "agent_id": "...",
@@ -155,11 +120,11 @@ node scripts/create_api_agent_and_bind.js \
 - 不要求用户自己开浏览器
 - 只有当前执行环境**没有** Grix WS 运行时凭证（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）且任务只是 HTTP 注册/创建时才走这个技能。完整 Hermes agent 孵化始终走 `grix-egg`
 - HTTP 只用于注册、登录、验证码、首个 API agent 创建
-- `create-api-agent` 默认按主 agent 创建，也会把"主 agent 保留全部技能"这件事继续交给 `grix-admin`
-- 本地 Hermes 绑定不在这个技能里手工拼，创建完就继续交给 `grix-admin`
+- `create-api-agent` 默认按主 agent 创建，也会把"主 agent 保留全部技能"这件事继续交给 `grix-egg`
+- 本地 Hermes 绑定不在这个技能里手工拼，创建完就继续交给 `grix-egg`
 - 如果要写 `SOUL.md`、启动 gateway、覆盖已有 Hermes agent 或做验收，继续交给 `grix-egg`
 
 ## 参考
 
 - [Hermes Grix Runtime](../shared/references/hermes-grix-config.md)
-- [Handoff To grix-admin](references/handoff-contract.md)
+- [Handoff To grix-egg](references/handoff-contract.md)

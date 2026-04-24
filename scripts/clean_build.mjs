@@ -21,6 +21,14 @@ const INCLUDED_DIRS = [
 ];
 
 const EXCLUDED_NAMES = new Set(["clean_build.mjs"]);
+const STALE_OUTPUTS = [
+  "grix-admin/scripts/bind_local.js",
+  "grix-admin/scripts/bind_local.js.map",
+  "grix-admin/scripts/bind_local.d.ts",
+  "grix-admin/scripts/patch_profile_config.js",
+  "grix-admin/scripts/patch_profile_config.js.map",
+  "grix-admin/scripts/patch_profile_config.d.ts",
+];
 
 function walk(dir) {
   let entries;
@@ -57,4 +65,8 @@ function walk(dir) {
 
 for (const rel of INCLUDED_DIRS) {
   walk(join(ROOT, rel));
+}
+
+for (const rel of STALE_OUTPUTS) {
+  rmSync(join(ROOT, rel), { force: true });
 }

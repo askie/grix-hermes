@@ -234,7 +234,7 @@ if (sub === "status") {
   });
 });
 
-describe("grix-admin bind_local", () => {
+describe("grix-egg bind_local", () => {
   it("writes profile env files privately and masks JSON output", () => {
     const tmp = makeTempDir("grix-bind-");
     const hermesHome = path.join(tmp, "hermes");
@@ -244,6 +244,7 @@ describe("grix-admin bind_local", () => {
       "lib/manifest.js",
       "shared/cli/grix-hermes.js",
       "grix-admin/SKILL.md",
+      "grix-egg/SKILL.md",
     ]) {
       const absolute = path.join(installDir, filePath);
       fs.mkdirSync(path.dirname(absolute), { recursive: true });
@@ -263,7 +264,7 @@ if (args[0] === "profile" && args[1] === "create") {
 `);
 
     const result = spawnSync(process.execPath, [
-      path.join(root, "grix-admin", "scripts", "bind_local.js"),
+      path.join(root, "grix-egg", "scripts", "bind_local.js"),
       "--agent-name", "secureagent",
       "--agent-id", "agent-secure",
       "--api-endpoint", "wss://secure",

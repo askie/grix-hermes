@@ -419,7 +419,7 @@ interface ScriptPaths {
 function resolveScripts(root: string): ScriptPaths {
   return {
     adminScript: path.join(root, "grix-admin", "scripts", "admin.js"),
-    bindScript: path.join(root, "grix-admin", "scripts", "bind_local.js"),
+    bindScript: path.join(root, "grix-egg", "scripts", "bind_local.js"),
     createAndBindScript: path.join(root, "grix-register", "scripts", "create_api_agent_and_bind.js"),
     installBin: path.join(root, "bin", "grix-hermes.js"),
     startScript: path.join(root, "grix-egg", "scripts", "start_gateway.js"),

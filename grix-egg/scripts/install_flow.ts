@@ -260,7 +260,7 @@ function buildBindStep(
 
     const bindCmd = [
       scripts.node,
-      path.join(projectRoot(), "grix-admin", "scripts", "bind_local.js"),
+      path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
       "--from-json",
       "-",
       "--profile-mode",
@@ -311,7 +311,7 @@ function buildBindStep(
 
         const autoBindCmd = [
           scripts.node,
-          path.join(projectRoot(), "grix-admin", "scripts", "bind_local.js"),
+          path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
           "--from-json",
           "-",
           "--profile-mode",
@@ -353,7 +353,7 @@ function buildBindStep(
 
   const bindCmd = [
     scripts.node,
-    path.join(projectRoot(), "grix-admin", "scripts", "bind_local.js"),
+    path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
     "--from-json",
     "-",
     "--profile-mode",

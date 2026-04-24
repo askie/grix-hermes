@@ -63,7 +63,7 @@ Each of the 9 skills follows this layout:
 
 | Skill | Role |
 |---|---|
-| `grix-admin` | Low-level WS admin for remote agents/categories; explicit bind helper |
+| `grix-admin` | Low-level WS admin for remote agents/categories; no local profile binding |
 | `grix-egg` | Full Hermes agent install-flow orchestrator (WS or HTTP path) |
 | `grix-group` | Grix group lifecycle (CRUD, members, roles) |
 | `grix-query` | Read-only: contact/session/message lookup |
@@ -78,7 +78,7 @@ Each of the 9 skills follows this layout:
 - **Thin-shim pattern**: Most skill scripts (`group.ts`, `query.ts`, `send.ts`, `unsend.ts`, `admin.ts`, `grix-key-rotate.ts`) are 3-line files importing `runSharedCliAction` from `shared/cli/skill-wrapper.ts`, delegating to the shared WS CLI. Real logic lives in `shared/cli/`.
 - **Dual-path routing**: Full Hermes agent bootstraps enter through `grix-egg`; it uses the WS admin path when `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` are present, and the HTTP registration path as fallback.
 - **Envelope output**: All scripts output `{ok: true, data}` or `{ok: false, error}` JSON.
-- **Profile management**: `bind_local.ts` + `patch_profile_config.ts` manage Hermes profiles, `.env` files, and `config.yaml` skill visibility.
+- **Profile management**: `grix-egg/scripts/bind_local.ts` + `grix-egg/scripts/patch_profile_config.ts` manage Hermes profiles, `.env` files, and `config.yaml` skill visibility.
 
 ## 统一出站端到端测试
 

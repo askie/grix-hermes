@@ -248,59 +248,6 @@ function patchApiKeyInEnvFile(envFilePath: string, newApiKey: string): string {
   return tempKeyFile;
 }
 
-interface ConfigHermesResult {
-  ok: boolean;
-  envFile: string;
-  tempKeyFile: string;
-  message: string;
-}
-
-function configHermes(
-  envFilePath: string,
-  agentId: string,
-  apiEndpoint: string,
-  apiKey: string,
-): ConfigHermesResult {
-  const envDir = path.dirname(envFilePath);
-  ensurePrivateDir(envDir);
-
-  const envLines: string[] = [];
-  const existing: Record<string, string> = {};
-  if (fs.existsSync(envFilePath)) {
-    for (const line of fs.readFileSync(envFilePath, "utf8").split("\n")) {
-      const eq = line.indexOf("=");
-      if (eq > 0) {
-        existing[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
-      }
-    }
-  }
-  existing.GRIX_AGENT_ID = agentId;
-  existing.GRIX_ENDPOINT = apiEndpoint;
-  existing.GRIX_API_KEY = apiKey;
-  for (const [k, v] of Object.entries(existing)) {
-    envLines.push(`${k}=${v}`);
-  }
-  writePrivateFile(envFilePath, envLines.join("\n") + "\n");
-
-  const tmpDir = path.join(os.homedir(), ".hermes", "tmp");
-  ensurePrivateDir(tmpDir);
-  const tempKeyFile = path.join(tmpDir, `grix-key-${Date.now()}.tmp`);
-  writePrivateFile(tempKeyFile, JSON.stringify({
-    agent_id: agentId,
-    api_endpoint: apiEndpoint,
-    api_key: apiKey,
-    configured_env: envFilePath,
-    created_at: new Date().toISOString(),
-  }, null, 2));
-
-  return {
-    ok: true,
-    envFile: envFilePath,
-    tempKeyFile,
-    message: `Hermes 的 Grix 渠道参数已配置到 ${envFilePath}`,
-  };
-}
-
 async function listCategories(client: AibotWsClient): Promise<unknown> {
   return client.agentInvoke("agent_category_list", {});
 }
@@ -366,22 +313,6 @@ export async function runAdmin(
       data,
     };
   }
-  if (action === "config_hermes") {
-    const envFilePath = cleanText(options.envFile);
-    if (!envFilePath) throw new Error("config_hermes requires --env-file (absolute path to .env)");
-    const agentId = cleanText(options.agentId);
-    const apiEndpoint = cleanText(options.to || options.target);
-    const apiKey = cleanText(options.message);
-    if (!agentId || !apiEndpoint || !apiKey) {
-      throw new Error("config_hermes requires --agent-id, --to (api_endpoint), --message (api_key)");
-    }
-    return {
-      ok: true,
-      accountId: options.accountId,
-      action,
-      configHermes: configHermes(envFilePath, agentId, apiEndpoint, apiKey),
-    };
-  }
   if (action !== "create_grix") {
     throw new Error(`Unsupported grix admin action: ${action}`);
   }
@@ -426,30 +357,6 @@ export async function runAdmin(
       agent_id: createdAgentId,
       category_id: resolvedCategoryId,
     });
-  }
-
-  const envFilePath = cleanText(options.envFile);
-  if (envFilePath) {
-    const createdRecord = asRecord(createdAgent) ?? {};
-    const apiKey = cleanText(createdRecord.api_key);
-    const apiEndpoint = cleanText(createdRecord.api_endpoint);
-    if (!apiKey || !apiEndpoint || !createdAgentId) {
-      return {
-        ok: false,
-        error: "create_grix succeeded but response missing api_key/api_endpoint/agent_id for config_hermes",
-      };
-    }
-    const configResult = configHermes(envFilePath, createdAgentId, apiEndpoint, apiKey);
-    return {
-      ok: true,
-      accountId: options.accountId,
-      action,
-      requestedIsMain: createPayload.is_main,
-      createdAgent: maskResult(createdAgent),
-      category,
-      assignment,
-      configHermes: configResult,
-    };
   }
 
   return {

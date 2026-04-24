@@ -154,7 +154,7 @@ function main(): number {
     }
     const here = path.dirname(fileURLToPath(import.meta.url));
     const authScript = path.join(here, "grix_auth.js");
-    const bindScript = path.resolve(here, "..", "..", "grix-admin", "scripts", "bind_local.js");
+    const bindScript = path.resolve(here, "..", "..", "grix-egg", "scripts", "bind_local.js");
 
     const createdPayload = loadOrCreatePayload(flags, authScript);
 
