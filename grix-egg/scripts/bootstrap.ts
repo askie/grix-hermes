@@ -5,7 +5,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { hasWsCredentials } from "../../shared/cli/config.js";
+import {
+  formatWsCredentialDiagnostics,
+  getWsCredentialDiagnostics,
+  hasWsCredentials,
+} from "../../shared/cli/config.js";
 
 // ---------------------------------------------------------------------------
 // Section 1: Utility functions
@@ -464,17 +468,32 @@ function stepDetect(
     return;
   }
 
-  const useWs = hasWsCredentials({ hermesHome });
+  const wsDiagnostics = getWsCredentialDiagnostics({
+    hermesHome,
+    profileName: cleanText(flags.profileName) || cleanText(flags.agentName),
+  });
+  const useWs = hasWsCredentials({
+    hermesHome,
+    profileName: cleanText(flags.profileName) || cleanText(flags.agentName),
+  });
   if (useWs) {
-    markStepDone(state, "detect", { path: "ws" });
+    markStepDone(state, "detect", {
+      path: "ws",
+      ws_source: wsDiagnostics.selectedSource,
+      ws_source_path: wsDiagnostics.selectedSourcePath,
+      ws_profile_name: wsDiagnostics.selectedProfileName || "",
+    });
   } else if (cleanText(flags.accessToken)) {
-    markStepDone(state, "detect", { path: "http" });
+    markStepDone(state, "detect", {
+      path: "http",
+      ws_probe: formatWsCredentialDiagnostics(wsDiagnostics),
+    });
   } else {
     throw new BootstrapError(
       "detect", 1,
       "未检测到 Grix WS 凭证，且未提供 --access-token",
-      "提供 --access-token 进行 HTTP 注册，或在已配置 GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY 的环境中运行。",
-      "hasWsCredentials=false, accessToken=empty",
+      "提供 --access-token 进行 HTTP 注册，或检查当前 Hermes home / profile 的 Grix 配置是否完整。",
+      formatWsCredentialDiagnostics(wsDiagnostics),
     );
   }
 }

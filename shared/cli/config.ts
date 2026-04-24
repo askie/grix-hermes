@@ -42,6 +42,7 @@ export interface RuntimeConfig {
 
 export interface RuntimeOverrides {
   hermesHome?: string;
+  profileName?: string;
   baseUrl?: string;
   endpoint?: string;
   agentId?: string;
@@ -58,6 +59,31 @@ export interface RuntimeOverrides {
   adapterHint?: string;
   connectTimeoutMs?: string | number;
   requestTimeoutMs?: string | number;
+}
+
+const REQUIRED_WS_KEYS = ["GRIX_ENDPOINT", "GRIX_AGENT_ID", "GRIX_API_KEY"] as const;
+type RequiredWsKey = (typeof REQUIRED_WS_KEYS)[number];
+
+interface WsCredentialCandidate {
+  source: string;
+  sourcePath: string;
+  profileName?: string;
+  values: Partial<Record<RequiredWsKey, string>>;
+  missingKeys: RequiredWsKey[];
+}
+
+export interface WsCredentialDiagnostics {
+  hermesHome: string;
+  selectedSource: string;
+  selectedSourcePath: string;
+  selectedProfileName?: string;
+  checked: Array<{
+    source: string;
+    sourcePath: string;
+    profileName?: string;
+    missingKeys: RequiredWsKey[];
+  }>;
+  missingKeys: RequiredWsKey[];
 }
 
 function parseEnvFile(filePath: string): Record<string, string> {
@@ -110,6 +136,21 @@ function cleanInt(value: unknown, fallback: number): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function cleanKeyValueMap(
+  input: Partial<Record<RequiredWsKey, unknown>>,
+): Partial<Record<RequiredWsKey, string>> {
+  const output: Partial<Record<RequiredWsKey, string>> = {};
+  for (const key of REQUIRED_WS_KEYS) {
+    const value = cleanText(input[key]);
+    if (value) output[key] = value;
+  }
+  return output;
+}
+
+function collectMissingKeys(values: Partial<Record<RequiredWsKey, string>>): RequiredWsKey[] {
+  return REQUIRED_WS_KEYS.filter((key) => !cleanText(values[key]));
+}
+
 export function resolveHermesHome(overrides: RuntimeOverrides = {}): string {
   return path.resolve(
     cleanText(overrides.hermesHome) ||
@@ -136,6 +177,143 @@ function mergedEnv(hermesHome: string): Record<string, string | undefined> {
   return { ...parseEnvFile(envFile), ...process.env };
 }
 
+function readEnvCandidate(
+  source: string,
+  sourcePath: string,
+  env: Partial<Record<RequiredWsKey, unknown>>,
+  profileName?: string,
+): WsCredentialCandidate {
+  const values = cleanKeyValueMap(env);
+  return {
+    source,
+    sourcePath,
+    profileName,
+    values,
+    missingKeys: collectMissingKeys(values),
+  };
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values.map((item) => cleanText(item)).filter(Boolean))];
+}
+
+function profileEnvPath(hermesHome: string, profileName: string): string {
+  return path.join(hermesHome, "profiles", profileName, ".env");
+}
+
+function listProfileNames(hermesHome: string, configYaml: Record<string, unknown>): string[] {
+  const configured = dedupeStrings([
+    cleanText(process.env.HERMES_PROFILE),
+    cleanText(process.env.HERMES_PROFILE_NAME),
+    cleanText(process.env.PROFILE_NAME),
+    cleanText((configYaml.default_profile as string | undefined) ?? ""),
+    cleanText((configYaml.current_profile as string | undefined) ?? ""),
+  ]);
+  if (configured.length > 0) return configured;
+
+  const profilesDir = path.join(hermesHome, "profiles");
+  if (!fs.existsSync(profilesDir)) return [];
+  return fs.readdirSync(profilesDir)
+    .filter((entry) => fs.existsSync(profileEnvPath(hermesHome, entry)))
+    .sort();
+}
+
+function probeWsCredentials(
+  overrides: RuntimeOverrides = {},
+): {
+  candidate: WsCredentialCandidate | null;
+  diagnostics: WsCredentialDiagnostics;
+} {
+  const hermesHome = resolveHermesHome(overrides);
+  const configPath = path.join(hermesHome, "config.yaml");
+  const configYaml = readYaml(configPath);
+  const grix = resolvePlatformConfig(configYaml);
+  const extra =
+    grix.extra && typeof grix.extra === "object"
+      ? (grix.extra as Record<string, unknown>)
+      : {};
+
+  const candidates: WsCredentialCandidate[] = [];
+
+  const overrideCandidate = readEnvCandidate(
+    "explicit overrides",
+    "runtime overrides",
+    {
+      GRIX_ENDPOINT: overrides.endpoint,
+      GRIX_AGENT_ID: overrides.agentId,
+      GRIX_API_KEY: overrides.apiKey,
+    },
+    cleanText(overrides.profileName),
+  );
+  if (Object.keys(overrideCandidate.values).length > 0) {
+    candidates.push(overrideCandidate);
+  }
+
+  candidates.push(readEnvCandidate("process.env", "process.env", process.env));
+
+  const rootEnvPath = path.join(hermesHome, ".env");
+  candidates.push(readEnvCandidate("Hermes root .env", rootEnvPath, parseEnvFile(rootEnvPath)));
+
+  const profileNames = dedupeStrings([
+    cleanText(overrides.profileName),
+    ...listProfileNames(hermesHome, configYaml),
+  ]);
+  for (const profileName of profileNames) {
+    const envPath = profileEnvPath(hermesHome, profileName);
+    candidates.push(
+      readEnvCandidate(`Hermes profile .env (${profileName})`, envPath, parseEnvFile(envPath), profileName),
+    );
+  }
+
+  candidates.push(readEnvCandidate("Hermes config.yaml", configPath, {
+    GRIX_ENDPOINT: extra.endpoint,
+    GRIX_AGENT_ID: extra.agent_id,
+    GRIX_API_KEY: grix.api_key ?? grix.token,
+  }));
+
+  const candidate = candidates.find((item) => item.missingKeys.length === 0) ?? null;
+  return {
+    candidate,
+    diagnostics: {
+      hermesHome,
+      selectedSource: candidate?.source || "",
+      selectedSourcePath: candidate?.sourcePath || "",
+      selectedProfileName: candidate?.profileName,
+      checked: candidates.map((item) => ({
+        source: item.source,
+        sourcePath: item.sourcePath,
+        profileName: item.profileName,
+        missingKeys: [...item.missingKeys],
+      })),
+      missingKeys: candidate ? [] : [...REQUIRED_WS_KEYS],
+    },
+  };
+}
+
+export function formatWsCredentialDiagnostics(diagnostics: WsCredentialDiagnostics): string {
+  const checks = diagnostics.checked
+    .map((item) => {
+      const profile = item.profileName ? ` profile=${item.profileName}` : "";
+      const missing =
+        item.missingKeys.length === 0 ? "complete" : `missing=${item.missingKeys.join(",")}`;
+      return `${item.source} [${item.sourcePath}]${profile}: ${missing}`;
+    })
+    .join("; ");
+  if (diagnostics.selectedSource) {
+    const profile = diagnostics.selectedProfileName
+      ? ` (profile=${diagnostics.selectedProfileName})`
+      : "";
+    return `WS credentials resolved from ${diagnostics.selectedSource} [${diagnostics.selectedSourcePath}]${profile}. Checked: ${checks}`;
+  }
+  return `WS credentials not found under ${diagnostics.hermesHome}. Checked: ${checks}`;
+}
+
+export function getWsCredentialDiagnostics(
+  overrides: RuntimeOverrides = {},
+): WsCredentialDiagnostics {
+  return probeWsCredentials(overrides).diagnostics;
+}
+
 function firstNonEmpty(...values: unknown[]): string {
   for (const value of values) {
     const cleaned = cleanText(value);
@@ -145,22 +323,12 @@ function firstNonEmpty(...values: unknown[]): string {
 }
 
 export function hasWsCredentials(overrides: RuntimeOverrides = {}): boolean {
-  // Check process.env first — Hermes may have loaded the profile .env into its
-  // own process.env and child processes inherit it.
-  if (process.env.GRIX_ENDPOINT && process.env.GRIX_AGENT_ID && process.env.GRIX_API_KEY) {
-    return true;
-  }
-  // Try the default profile .env + config.yaml via resolveRuntimeConfig.
-  try {
-    resolveRuntimeConfig(overrides);
-    return true;
-  } catch {
-    return false;
-  }
+  return probeWsCredentials(overrides).candidate !== null;
 }
 
 export function resolveRuntimeConfig(overrides: RuntimeOverrides = {}): RuntimeConfig {
-  const hermesHome = resolveHermesHome(overrides);
+  const { candidate, diagnostics } = probeWsCredentials(overrides);
+  const hermesHome = diagnostics.hermesHome;
   const env = mergedEnv(hermesHome);
   const configYaml = readYaml(path.join(hermesHome, "config.yaml"));
   const grix = resolvePlatformConfig(configYaml);
@@ -168,11 +336,13 @@ export function resolveRuntimeConfig(overrides: RuntimeOverrides = {}): RuntimeC
     grix.extra && typeof grix.extra === "object"
       ? (grix.extra as Record<string, unknown>)
       : {};
+  const resolvedWs = candidate?.values ?? {};
 
-  const endpoint = firstNonEmpty(overrides.endpoint, env.GRIX_ENDPOINT, extra.endpoint);
-  const agentId = firstNonEmpty(overrides.agentId, env.GRIX_AGENT_ID, extra.agent_id);
+  const endpoint = firstNonEmpty(overrides.endpoint, resolvedWs.GRIX_ENDPOINT, env.GRIX_ENDPOINT, extra.endpoint);
+  const agentId = firstNonEmpty(overrides.agentId, resolvedWs.GRIX_AGENT_ID, env.GRIX_AGENT_ID, extra.agent_id);
   const apiKey = firstNonEmpty(
     overrides.apiKey,
+    resolvedWs.GRIX_API_KEY,
     env.GRIX_API_KEY,
     grix.api_key,
     grix.token,
@@ -182,7 +352,7 @@ export function resolveRuntimeConfig(overrides: RuntimeOverrides = {}): RuntimeC
 
   if (!endpoint || !agentId || !apiKey) {
     throw new Error(
-      "Missing Grix runtime config. Need endpoint, agent_id, and api_key from Hermes env/config.",
+      `Missing Grix runtime config. Need endpoint, agent_id, and api_key from Hermes env/config. ${formatWsCredentialDiagnostics(diagnostics)}`,
     );
   }
 

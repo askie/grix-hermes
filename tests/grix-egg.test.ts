@@ -209,6 +209,57 @@ describe("grix-egg bootstrap", () => {
     const stateText = fs.readFileSync(path.join(hermesHome, "tmp", "grix-egg-egg-http.json"), "utf8");
     assert.ok(!stateText.includes("ak_123_HTTPSECRET"));
   });
+
+  it("uses profile env credentials for WS detection when the Hermes root env is incomplete", () => {
+    const tmp = makeTempDir("grix-egg-profile-env-");
+    const hermesHome = path.join(tmp, "hermes");
+    const profileDir = path.join(hermesHome, "profiles", "safeagent");
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(hermesHome, ".env"), "GRIX_ENDPOINT=wss://root-only\n");
+    fs.writeFileSync(
+      path.join(profileDir, ".env"),
+      [
+        "GRIX_ENDPOINT=wss://profile-target",
+        "GRIX_AGENT_ID=profile-agent",
+        "GRIX_API_KEY=ak_123_PROFILE",
+      ].join("\n"),
+    );
+
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-profile-env",
+      "--agent-name", "safeagent",
+      "--profile-name", "safeagent",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "",
+        GRIX_AGENT_ID: "",
+        GRIX_API_KEY: "",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(tmp, "http-create-args.json")), false);
+
+    const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-profile-env.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+      steps: {
+        detect: {
+          result: Record<string, string>;
+        };
+      };
+    };
+    assert.equal(state.steps.detect.result.path, "ws");
+    assert.equal(state.steps.detect.result.ws_source, "Hermes profile .env (safeagent)");
+    assert.equal(state.steps.detect.result.ws_profile_name, "safeagent");
+  });
 });
 
 describe("grix-egg gateway startup", () => {
