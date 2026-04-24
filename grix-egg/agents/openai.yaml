@@ -1,30 +1,33 @@
 interface:
   display_name: "Grix Egg"
-  short_description: "One-command agent incubation with auto-detection and resume."
+  short_description: "One-command Hermes agent incubation, including empty-agent bootstrap."
   default_prompt: |
-    Use $grix-egg to incubate a new Grix agent in one command.
+    Use $grix-egg to incubate a Hermes agent in one command.
 
-    Required: --install-id (use the value from install context, or generate a unique string like 'egg-' + 8 random hex chars) and --agent-name.
+    Capabilities: create a remote Grix API agent, bind a local Hermes profile, inherit LLM keys, write SOUL.md when provided, start gateway, run acceptance when probe settings are provided, and resume from checkpoints.
 
-    Typical usage:
+    Empty-agent bootstrap:
+      node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --json
+
+    With SOUL content:
       node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --soul-content "personality text" --status-target <SESSION_ID> --json
 
-    Acceptance testing: provide BOTH --probe-message and --expected-substring to trigger it; omit both to skip.
+    Acceptance testing:
+      node scripts/bootstrap.js --install-id <ID> --agent-name <NAME> --probe-message "who are you" --expected-substring "I am" --json
 
-    On failure: read the step/suggestion in the error JSON, then retry with --resume using the same --install-id.
+    Required: --install-id and --agent-name.
 
     Decision rules:
-    1. Always use node scripts/bootstrap.js ... --json; do not call internal scripts.
-    2. Default to create_new by omitting --route; the script auto-selects WS or HTTP.
-    3. Use --route existing only when the user explicitly wants to bind an existing agent or complete credentials are already available.
-    4. For existing, prefer --bind-json <FILE> over putting --api-key directly on the command line.
-    5. Resume checkpoints never contain plaintext api_key; if create finished but bind did not, continue with --route existing and explicit credentials.
+    1. Use node scripts/bootstrap.js ... --json as the main entry.
+    2. Default route is create_new, with WS/HTTP selected automatically.
+    3. Existing-agent binding uses --route existing with --bind-json <FILE>.
+    4. Checkpoint resume uses --resume with the same --install-id.
 
-    Profile names must match [a-z0-9][a-z0-9_-]{0,63}; pass --profile-name when --agent-name is not a valid profile name.
+    Profile names match [a-z0-9][a-z0-9_-]{0,63}; --profile-name can override --agent-name.
 
-    Route: --route create_new (default, from scratch) or existing (bind an existing agent with --agent-id/--api-endpoint/--api-key or --bind-json, with auto-backup).
+    Route: --route create_new or existing.
 
-    Path auto-detection: WS when GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY are present; HTTP when only --access-token is provided; existing when explicit existing credentials are provided.
+    Path auto-detection: WS with GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY; HTTP with --access-token; existing with explicit credentials.
 
 policy:
   allow_implicit_invocation: true

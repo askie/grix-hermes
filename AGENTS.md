@@ -63,15 +63,15 @@ Each of the 9 skills follows this layout:
 
 | Skill | Role |
 |---|---|
-| `grix-admin` | Low-level WS admin for remote agents/categories; no local profile binding |
-| `grix-egg` | Full Hermes agent install-flow orchestrator (WS or HTTP path) |
+| `grix-admin` | Low-level WS admin for remote agents, categories, assignment, and status |
+| `grix-egg` | Full Hermes agent incubation, including empty-agent bootstrap |
 | `grix-group` | Grix group lifecycle (CRUD, members, roles) |
-| `grix-query` | Read-only: contact/session/message lookup |
-| `grix-register` | Low-level HTTP registration/login/API-agent creation; no local profile binding |
+| `grix-query` | Contact/session/message lookup |
+| `grix-register` | Low-level HTTP registration/login/access-token/API-agent creation |
 | `grix-update` | Bundle self-update (`npm update -g` + reinstall) |
 | `message-send` | Message sending + card links |
 | `message-unsend` | Silent message retraction |
-| `grix-key-rotate` | API key rotation with `.env` file update (WS path, no plaintext output) |
+| `grix-key-rotate` | API key rotation with `.env` update and masked stdout |
 
 ### Core patterns
 
@@ -82,4 +82,4 @@ Each of the 9 skills follows this layout:
 
 ## 统一出站端到端测试
 
-grix-hermes 是技能包而非 AI 适配器，不代理到 AI 模型，因此不适用统一的出站 E2E 测试。出站 E2E 测试仅适用于有 AI 模型交互的适配器（Codex、Gemini、Qwen、Codex、OpenClaw）。
+grix-hermes 是 Hermes 技能包。统一出站 E2E 测试覆盖有 AI 模型交互的适配器（Codex、Gemini、Qwen、Codex、OpenClaw）。

@@ -1,51 +1,55 @@
 ---
 name: grix-key-rotate
-description: 轮换 Grix agent 的 API 密钥。支持 --env-file 参数直接替换 .env 文件中的密钥，不输出明文。具有 agent.api.create 权限的 agent 可独立调用此技能轮换同 owner 下任意 agent 的密钥。
+description: 轮换 Grix agent API 密钥。支持更新已有 `.env` 中的 `GRIX_API_KEY`，stdout 输出脱敏结果。
 ---
 
 # Grix Key Rotate
 
-轮换 Grix agent 的 API 密钥，并可更新已经绑定好的本地配置。
+这个技能提供 Grix agent API key 轮换能力。
 
-## 用途
+## 能力
 
-- 定期轮换 agent 的 API 密钥（安全最佳实践）
-- 密钥泄露后立即更换
-- 任何具有 `agent.api.create` 权限的 agent 可以独立调用此技能，轮换同一 owner 下任意 agent 的密钥
-- 只维护已有绑定的 `GRIX_API_KEY`，不创建 Hermes profile，不做初始绑定
+1. 为指定 Grix agent 轮换 API key
+2. 更新已有 `.env` 文件中的 `GRIX_API_KEY`
+3. 输出脱敏后的轮换结果
+4. 写入临时密钥备份文件
 
 ## 用法
 
-### 基本用法（轮换并替换 .env 文件中的密钥）
-
 ```bash
-node scripts/grix-key-rotate.js --agent-id <AGENT_ID> --env-file ~/.hermes/profiles/<PROFILE>/config.env
+node scripts/grix-key-rotate.js \
+  --agent-id <AGENT_ID> \
+  --env-file ~/.hermes/profiles/<PROFILE>/.env \
+  --json
 ```
 
-必填参数：
-- `--agent-id`：要轮换密钥的目标 agent ID
+参数：
 
-可选参数：
-- `--env-file`：目标 `.env` 文件的绝对路径。如果提供，新密钥会直接替换文件中的 `GRIX_API_KEY` 值，其他参数不变
+- `--agent-id`：目标 agent ID
+- `--env-file`：已有 `.env` 文件路径
+- `--json`：JSON 输出
 
-### 输出
+## 输出
 
-传了 `--env-file` 时：
-- `rotatedAgent`：轮换后的 agent 信息（api_key 已脱敏为 `***`）
-- `envFile`：已更新的 .env 文件路径
-- `tempKeyFile`：临时密钥备份文件路径（位于 `~/.hermes/tmp/grix-key-<timestamp>.tmp`）
+传 `--env-file` 时：
 
-不传 `--env-file` 时：
-- `rotatedAgent`：轮换后的 agent 信息（api_key 已脱敏为 `***`）
+- `rotatedAgent`：轮换后的 agent 信息，`api_key` 字段脱敏
+- `envFile`：已更新的 `.env` 文件路径
+- `tempKeyFile`：临时密钥备份文件路径
 
-### 注意事项
+省略 `--env-file` 时：
 
-1. **不会输出明文密钥到 stdout**——密钥只出现在 `.env` 文件和临时备份文件中
-2. `--env-file` 只替换 `GRIX_API_KEY` 这一行，`GRIX_ENDPOINT` 和 `GRIX_AGENT_ID` 保持不变
-3. 临时密钥文件位于 `~/.hermes/tmp/`，调用方应及时读取并清理
-4. 轮换后旧密钥立即失效，使用该密钥的 agent 需要重启才能使用新密钥
-5. 调用方 agent 自身需要有 `agent.api.create` 权限
-6. 不用于新 agent 孵化或 profile 初始绑定；这些流程统一走 `grix-egg`
+- `rotatedAgent`：轮换后的 agent 信息，`api_key` 字段脱敏
+
+## 文件写入
+
+- `.env` 中的 `GRIX_API_KEY` 会替换为新密钥
+- `GRIX_ENDPOINT` 和 `GRIX_AGENT_ID` 保持原值
+- 临时备份文件写入 `~/.hermes/tmp/grix-key-<timestamp>.tmp`
+
+## 权限
+
+调用方 agent 使用 `agent.api.create` 权限轮换同 owner 下的 agent key。
 
 ## 参考
 

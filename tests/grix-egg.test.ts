@@ -75,6 +75,38 @@ if (script.endsWith("bin/grix-hermes.js")) {
 }
 
 describe("grix-egg bootstrap", () => {
+  it("incubates an empty agent with only install id and agent name", () => {
+    const tmp = makeTempDir("grix-egg-empty-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-empty",
+      "--agent-name", "emptyagent",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as { steps: Record<string, { status: string }> };
+    assert.ok(output.steps.soul);
+    assert.ok(output.steps.accept);
+    assert.equal(output.steps.soul.status, "skipped");
+    assert.equal(output.steps.accept.status, "skipped");
+    assert.ok(fs.existsSync(path.join(tmp, "bind-input.json")));
+    assert.equal(fs.existsSync(path.join(tmp, "group-args.json")), false);
+  });
+
   it("keeps WS-created api keys out of checkpoints while binding with the real key", () => {
     const tmp = makeTempDir("grix-egg-ws-");
     const hermesHome = path.join(tmp, "hermes");

@@ -13,12 +13,12 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "grix-admin",
     description:
-      "Low-level WS admin for remote Grix agents/categories; no local Hermes profile binding.",
+      "Low-level WS admin for remote Grix agents, categories, assignment, and status.",
   },
   {
     name: "grix-egg",
     description:
-      "Hermes agent install-flow orchestrator for Grix package delivery, binding, and acceptance.",
+      "Hermes agent incubation orchestrator for empty-agent bootstrap, binding, gateway, and acceptance.",
   },
   {
     name: "grix-group",
@@ -28,11 +28,11 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "grix-query",
     description:
-      "Read-only Grix contact, session, and message lookup over the bundled websocket CLI.",
+      "Grix contact, session, and message lookup over the bundled websocket CLI.",
   },
   {
     name: "grix-register",
-    description: "Low-level HTTP registration/login/API-agent creation; no local Hermes profile binding.",
+    description: "Low-level HTTP registration, login, access-token, and API-agent creation.",
   },
   {
     name: "grix-update",
@@ -48,7 +48,7 @@ export const SKILLS: SkillDefinition[] = [
   },
   {
     name: "grix-key-rotate",
-    description: "Rotate Grix agent API key with optional .env file update. Agents with agent.api.create scope can call independently.",
+    description: "Rotate Grix agent API key with optional .env file update and masked stdout.",
   },
 ];
 

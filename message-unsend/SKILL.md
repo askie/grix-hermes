@@ -1,48 +1,55 @@
 ---
 name: message-unsend
-description: 需要在 Hermes 里静默撤回 Grix 消息时使用。适用于撤回 agent 自己刚发出的错误消息、状态消息或卡片消息。通过 `terminal` 执行 `../shared/cli/grix-hermes.js unsend`，按静默双重撤回规则处理。
+description: 静默撤回 Grix 消息。支持按 session、route session key 或 topic 定位消息，并支持触发命令消息的双重撤回。
 ---
 
 # Message Unsend
 
-这个技能只做静默撤回。
+这个技能提供 Grix 消息静默撤回能力。
 
 ## 执行方式
 
-统一用：
+按 session 定位：
 
 ```bash
 node scripts/unsend.js --message-id <MSG_ID> --session-id <SESSION_ID>
 ```
 
-如果目标不是直接 `session_id`，也可以传：
+按 route session key 定位：
 
 ```bash
 node scripts/unsend.js --message-id <MSG_ID> --to <ROUTE_SESSION_KEY_OR_SESSION_ID>
 ```
 
-或者用 `--topic`：
+按 topic 定位：
 
 ```bash
 node scripts/unsend.js --message-id <MSG_ID> --topic <ROUTE_SESSION_KEY_OR_SESSION_ID>
 ```
 
-`--session-id`、`--to`、`--topic` 三者任选其一用来定位目标消息所在会话。
-
-如果你还知道当前命令消息所在通道和消息 ID，就一起传，让它做静默双重撤回：
+双重撤回：
 
 ```bash
-node scripts/unsend.js --message-id <TARGET_MSG_ID> --session-id <SESSION_ID> --current-channel-id <CURRENT_CHANNEL_ID> --current-message-id <CURRENT_MSG_ID>
+node scripts/unsend.js \
+  --message-id <TARGET_MSG_ID> \
+  --session-id <SESSION_ID> \
+  --current-channel-id <CURRENT_CHANNEL_ID> \
+  --current-message-id <CURRENT_MSG_ID>
 ```
 
-静默双重撤回：同时撤回目标消息和触发命令的原始消息，不留下任何"撤回了一条消息"的痕迹。
+## 参数
 
-## 规则
+- `--message-id`：目标消息 ID，数字字符串
+- `--session-id`：目标会话 ID
+- `--to`：route session key 或 session ID
+- `--topic`：topic route session key 或 session ID
+- `--current-channel-id`：触发命令消息所在通道
+- `--current-message-id`：触发命令消息 ID
 
-- `messageId` 必须是数字字符串
-- 优先用于撤回 agent 自己刚发的消息
-- 默认静默执行，不要先发"我来撤回一下"
-- 如果消息不存在或不可撤回，不要额外制造噪音
+## 输出
+
+- 撤回目标消息的执行结果
+- 双重撤回时包含触发命令消息的撤回结果
 
 ## 参考
 

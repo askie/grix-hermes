@@ -1,23 +1,19 @@
 ---
 name: grix-admin
-description: 底层 Grix WS 管理技能。用于远端 Grix API agent 创建、分类管理、agent 状态查询和分类分配；不负责本地 Hermes profile 绑定。完整新 Hermes agent 孵化必须使用 `grix-egg`。
+description: 底层 Grix WS 管理技能。提供远端 Grix API agent 创建、分类管理、agent 状态查询和分类分配能力。
 ---
 
 # Grix Admin
 
-这个技能只负责远端 Grix WS 管理动作，不创建、不绑定、不修改本地 Hermes profile。
+这个技能提供远端 Grix WS 管理能力。
 
-## 职责边界
+## 能力
 
 1. 创建远端 Grix API agent
 2. 查询远端 agent 在线状态和 key 状态
 3. 管理分类：列表、创建、更新、分配
 
-如果用户要“建立 / 孵化 / 安装 / 绑定 / 验收一个新的 Hermes agent”，不要使用本技能串流程，直接使用 `grix-egg` 的 `node scripts/bootstrap.js ... --json` 主入口。
-
-## Mode A: ws-agent-create
-
-只创建远端 Grix API agent。不要把这个模式当成本地 Hermes agent 孵化流程。
+## 创建远端 Agent
 
 ```bash
 node scripts/admin.js --action create_grix \
@@ -27,7 +23,7 @@ node scripts/admin.js --action create_grix \
   --json
 ```
 
-如果需要分类：
+带分类创建：
 
 ```bash
 node scripts/admin.js --action create_grix \
@@ -42,32 +38,20 @@ node scripts/admin.js --action create_grix \
   --json
 ```
 
-`--category-id` 和 `--category-name` 互斥，不能同时传。传 `--category-name` 时，如果分类不存在会自动创建。
+`--category-id` 和 `--category-name` 二选一。传 `--category-name` 时，脚本会查找同名分类并按需创建。
 
-返回里可能包含远端创建得到的 `api_key`。不要把它写入聊天窗口、日志或 checkpoint；如需绑定到本地 profile，交给 `grix-egg` 的 existing 路径。
-
-## Mode B: agent-status
-
-查询指定远端 agent 的在线状态和 key 有效性。
+## 查询 Agent 状态
 
 ```bash
 node scripts/admin.js --action agent_status --agent-id <AGENT_ID> --json
 ```
 
-必填参数：
-
-- `--agent-id`：目标 agent ID
-
 返回：
 
 - `agent_id`：查询的 agent ID
-- `data`：服务端返回的状态信息（online、status 等）
+- `data`：服务端返回的状态信息
 
-前置条件：服务端需提供 `agent_api_status` 接口。
-
-## Mode C: category-manage
-
-分类相关动作统一走：
+## 分类管理
 
 ```bash
 node scripts/admin.js --action list_categories --json
@@ -76,13 +60,12 @@ node scripts/admin.js --action update_category --category-id <ID> --name <NAME> 
 node scripts/admin.js --action assign_category --agent-id <AGENT_ID> --category-id <CATEGORY_ID> --json
 ```
 
-## Guardrails
+## 输出
 
-- 远端动作不要改走 HTTP
-- 本技能不做本地 Hermes profile 绑定，不写 `.env`，不改 `config.yaml`
-- 用户要求建立、孵化、安装、绑定或验收新的 Hermes agent 时，必须转用 `grix-egg`
-- `create_grix` 表示“创建远端 Grix API agent”，不要把它理解成创建本地 Hermes agent
-- 不要将明文 API key 输出到聊天窗口或日志
+- 所有动作返回 JSON envelope
+- `create_grix` 返回远端 agent 信息
+- 分类动作返回服务端分类结果
+- 状态查询返回服务端状态结果
 
 ## 参考
 

@@ -1,11 +1,11 @@
 ---
 name: grix-query
-description: 查询 Grix 联系人、会话、消息历史时使用。适用于 Hermes 里需要查联系人、找会话、读某个会话历史、按关键词搜消息，但又不能改 Hermes 内核的场景。通过 `terminal` 执行 `../shared/cli/grix-hermes.js query`，走 Hermes 已配置的 Grix websocket 凭证。
+description: 查询 Grix 联系人、会话和消息历史。提供联系人搜索、会话搜索、消息历史读取和消息关键词搜索能力。
 ---
 
 # Grix Query
 
-只做只读查询。
+这个技能提供 Grix 只读查询能力。
 
 ## 入口
 
@@ -16,7 +16,7 @@ description: 查询 Grix 联系人、会话、消息历史时使用。适用于 
 - `message_history`
 - `message_search`
 
-如果用户要读消息，但没有准确 `session_id`，先做一次 `session_search`。
+读取消息历史的常用流程是先用 `session_search` 定位 `session_id`，再用 `message_history` 或 `message_search` 查询消息。
 
 ## 执行方式
 

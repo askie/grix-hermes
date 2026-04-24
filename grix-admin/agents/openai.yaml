@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Admin"
-  short_description: "Low-level WS admin for remote Grix agents/categories. No local Hermes profile binding."
-  default_prompt: "Use $grix-admin only for low-level Grix WS administration: remote API agent creation, category management, category assignment, and status checks. Do not use it for local Hermes profile binding or full agent bootstrap with install/SOUL/gateway/acceptance; use $grix-egg for those flows."
+  short_description: "Low-level WS admin for remote Grix agents, categories, assignment, and status."
+  default_prompt: "Use $grix-admin for remote Grix WS administration: API agent creation, category listing/creation/update, category assignment, and agent status checks."
 
 policy:
   allow_implicit_invocation: true
