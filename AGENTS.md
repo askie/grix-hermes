@@ -67,7 +67,7 @@ Each of the 9 skills follows this layout:
 | `grix-egg` | Full Hermes agent install-flow orchestrator (WS or HTTP path) |
 | `grix-group` | Grix group lifecycle (CRUD, members, roles) |
 | `grix-query` | Read-only: contact/session/message lookup |
-| `grix-register` | HTTP-based Grix registration + first-agent bootstrap |
+| `grix-register` | Low-level HTTP registration/login/API-agent creation; no local profile binding |
 | `grix-update` | Bundle self-update (`npm update -g` + reinstall) |
 | `message-send` | Message sending + card links |
 | `message-unsend` | Silent message retraction |

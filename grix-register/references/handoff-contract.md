@@ -23,14 +23,4 @@ node ../grix-egg/scripts/bootstrap.js \
   --json
 ```
 
-如果只是内部 helper 调用、不需要完整 bootstrap，可以使用：
-
-```bash
-node ../grix-egg/scripts/bind_local.js \
-  --profile-name <PROFILE_NAME> \
-  --agent-name <AGENT_NAME> \
-  --agent-id <AGENT_ID> \
-  --api-endpoint <WS_URL> \
-  --api-key <API_KEY> \
-  --is-main true|false
-```
+内部实现可以调用 `grix-egg/scripts/bind_local.js`，但公开技能调用不要直接走这个 helper。

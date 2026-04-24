@@ -2,7 +2,8 @@
 
 > 以下文档描述了 `install_flow.js` 的完整 JSON payload 结构。
 > 新项目推荐使用 `bootstrap.js`（扁平 CLI 参数，无需构造 JSON）。
-> 仅在需要精细控制（直接绑定已有凭证、自定义 acceptance 配置等）时参考本文档。
+> 本文档仅用于维护旧输入格式，不是新的技能调用路线。
+> 新的 agent 孵化、已有凭证绑定、验收配置都应优先使用 `node scripts/bootstrap.js ... --json`。
 
 ## install_flow 完整参数
 
@@ -39,15 +40,15 @@ node scripts/install_flow.js \
 
 创建远端 API agent 时，按以下优先级判断走哪条路：
 
-1. payload 显式包含 `grix_register` → 走 HTTP（需要 `access_token`）
-2. payload 显式包含 `grix_admin` → 走 WS
+1. payload 显式包含 `grix_register` → 旧 JSON 字段，走 HTTP（需要 `access_token`）
+2. payload 显式包含 `grix_admin` → 旧 JSON 字段，走 WS 远端创建
 3. 都没有 → 自动探测当前环境是否已配置 Grix WS 运行时凭证
-   - 有（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）→ 自动走 `grix_admin`（WS）
-   - 没有 → 报错，需要上层提供 `grix_register` + `access_token`
+   - 有（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）→ 自动走 WS 远端创建
+   - 没有 → 报错，需要上层提供 HTTP access token
 
 ### 绑定路径
 
-**路径 1：grix_register（HTTP 创建）**
+**路径 1：`grix_register` 旧 JSON 字段（HTTP 创建）**
 
 ```json
 {
@@ -60,7 +61,7 @@ node scripts/install_flow.js \
 }
 ```
 
-**路径 2：grix_admin（WS 创建）**
+**路径 2：`grix_admin` 旧 JSON 字段（WS 远端创建）**
 
 ```json
 {
@@ -74,7 +75,7 @@ node scripts/install_flow.js \
 }
 ```
 
-**路径 3：直接绑定（已有凭证）**
+**路径 3：直接绑定已有凭证（由 grix-egg 执行本地 profile 绑定）**
 
 ```json
 {

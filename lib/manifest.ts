@@ -32,7 +32,7 @@ export const SKILLS: SkillDefinition[] = [
   },
   {
     name: "grix-register",
-    description: "HTTP-based Grix registration and first-agent bootstrap for Hermes.",
+    description: "Low-level HTTP registration/login/API-agent creation; no local Hermes profile binding.",
   },
   {
     name: "grix-update",

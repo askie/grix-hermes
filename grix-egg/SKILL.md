@@ -20,8 +20,8 @@ node scripts/bootstrap.js \
 
 - **`bootstrap.js`** — 唯一推荐入口，扁平 CLI 参数，自动检测路径，内置断点续传
 - `bind_local.js`、`patch_profile_config.js` — 本地 Hermes profile 绑定内部工具，由 bootstrap 或明确的 existing 凭证绑定场景调用
-- `install_flow.js`、`validate_install_context.js`、`verify_acceptance.js` — 内部工具，由 bootstrap 内部调用，不需要直接使用
-- 如需精细控制（直接绑定已有凭证、自定义验收配置），详见 [Legacy Skill 文档](references/legacy-skill.md)
+- `install_flow.js`、`validate_install_context.js`、`verify_acceptance.js` — 兼容旧 JSON payload 的内部工具；新调用不要直接使用
+- [Legacy Skill 文档](references/legacy-skill.md) 仅供维护旧 install_flow 输入时参考，不作为新的技能调用路线
 
 ## 调用决策
 
