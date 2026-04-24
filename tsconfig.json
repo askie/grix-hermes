@@ -33,7 +33,6 @@
     "grix-update/scripts/**/*.ts",
     "message-send/scripts/**/*.ts",
     "message-unsend/scripts/**/*.ts",
-    "grix-key-rotate/scripts/**/*.ts",
     "tests/**/*.ts"
   ],
   "exclude": ["node_modules", "tests/fixtures/**"]

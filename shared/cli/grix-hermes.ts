@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AibotWsClient } from "./aibot-client.js";
-import { runAdmin, runGroup, runKeyRotate, runQuery, runSend, runUnsend } from "./actions.js";
+import { runAdmin, runGroup, runQuery, runSend, runUnsend } from "./actions.js";
 import type { CommonActionOptions } from "./actions.js";
 import { resolveRuntimeConfig, type RuntimeOverrides } from "./config.js";
 
@@ -12,8 +12,8 @@ Usage:
   node shared/cli/grix-hermes.js query --action session_search --keyword xxx
   node shared/cli/grix-hermes.js group --action create --name dev --member-ids 1001,1002 --member-types 1,2
   node shared/cli/grix-hermes.js admin --action create_grix --agent-name my-agent
+  node shared/cli/grix-hermes.js admin --action key_rotate --agent-id <AGENT_ID> [--env-file ~/.hermes/profiles/<PROFILE>/.env]
   node shared/cli/grix-hermes.js unsend --message-id 2033371385615093760 --session-id <session>
-  node shared/cli/grix-hermes.js key_rotate --agent-id <AGENT_ID> [--env-file ~/.hermes/profiles/<PROFILE>/config.env]
 `);
 }
 
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   // Strip it from connection overrides so WS always authenticates as the calling agent.
   const { agentId: _targetAgentId, ...connectionFlags } = flags;
   const runtime = resolveRuntimeConfig(
-    (command === "key_rotate" || command === "admin" || command === "group"
+    (command === "admin" || command === "group"
       ? connectionFlags
       : flags) as RuntimeOverrides,
   );
@@ -81,8 +81,6 @@ async function main(): Promise<void> {
       result = await runAdmin(client, options);
     } else if (command === "unsend") {
       result = await runUnsend(client, options);
-    } else if (command === "key_rotate") {
-      result = await runKeyRotate(client, options);
     } else {
       throw new Error(`Unsupported command: ${command}`);
     }

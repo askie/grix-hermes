@@ -252,6 +252,38 @@ async function listCategories(client: AibotWsClient): Promise<unknown> {
   return client.agentInvoke("agent_category_list", {});
 }
 
+async function rotateAgentKey(
+  client: AibotWsClient,
+  options: CommonActionOptions,
+): Promise<Record<string, unknown>> {
+  const agentId = cleanText(options.agentId);
+  if (!agentId) throw new Error("key_rotate requires --agent-id");
+  const envFilePath = cleanText(options.envFile);
+  const raw = await client.agentInvoke("agent_api_key_rotate", { agent_id: agentId });
+  const record = asRecord(raw) ?? {};
+  const newApiKey = cleanText(record.api_key);
+  if (!newApiKey) throw new Error("key rotate response missing api_key");
+  if (envFilePath) {
+    const tempKeyFile = patchApiKeyInEnvFile(envFilePath, newApiKey);
+    return {
+      ok: true,
+      accountId: options.accountId,
+      action: "key_rotate",
+      agentId,
+      rotatedAgent: maskResult(raw),
+      envFile: envFilePath,
+      tempKeyFile,
+    };
+  }
+  return {
+    ok: true,
+    accountId: options.accountId,
+    action: "key_rotate",
+    agentId,
+    rotatedAgent: maskResult(raw),
+  };
+}
+
 export async function runAdmin(
   client: AibotWsClient,
   options: CommonActionOptions,
@@ -312,6 +344,9 @@ export async function runAdmin(
       agent_id: agentId,
       data,
     };
+  }
+  if (action === "key_rotate") {
+    return rotateAgentKey(client, options);
   }
   if (action !== "create_grix") {
     throw new Error(`Unsupported grix admin action: ${action}`);
@@ -433,37 +468,5 @@ export async function runSend(
     resolvedTarget: resolved,
     message,
     ack,
-  };
-}
-
-export async function runKeyRotate(
-  client: AibotWsClient,
-  options: CommonActionOptions,
-): Promise<Record<string, unknown>> {
-  const agentId = cleanText(options.agentId);
-  if (!agentId) throw new Error("key_rotate requires --agent-id");
-  const envFilePath = cleanText(options.envFile);
-  const raw = await client.agentInvoke("agent_api_key_rotate", { agent_id: agentId });
-  const record = asRecord(raw) ?? {};
-  const newApiKey = cleanText(record.api_key);
-  if (!newApiKey) throw new Error("key rotate response missing api_key");
-  if (envFilePath) {
-    const tempKeyFile = patchApiKeyInEnvFile(envFilePath, newApiKey);
-    return {
-      ok: true,
-      accountId: options.accountId,
-      action: "key_rotate",
-      agentId,
-      rotatedAgent: maskResult(raw),
-      envFile: envFilePath,
-      tempKeyFile,
-    };
-  }
-  return {
-    ok: true,
-    accountId: options.accountId,
-    action: "key_rotate",
-    agentId,
-    rotatedAgent: maskResult(raw),
   };
 }

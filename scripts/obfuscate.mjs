@@ -58,7 +58,6 @@ const JS_DIRS = [
   "grix-update/scripts",
   "message-send/scripts",
   "message-unsend/scripts",
-  "grix-key-rotate/scripts",
 ];
 
 const ASSET_DIRS = [
@@ -70,7 +69,6 @@ const ASSET_DIRS = [
   "grix-update/agents",
   "message-send/agents",
   "message-unsend/agents",
-  "grix-key-rotate/agents",
 ];
 
 const ASSET_FILES = [
@@ -82,7 +80,6 @@ const ASSET_FILES = [
   "grix-update/SKILL.md",
   "message-send/SKILL.md",
   "message-unsend/SKILL.md",
-  "grix-key-rotate/SKILL.md",
   "README.md",
   "LICENSE",
 ];

@@ -13,7 +13,7 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "grix-admin",
     description:
-      "Low-level WS admin for remote Grix agents, categories, assignment, and status.",
+      "Low-level WS admin for remote Grix agents, API keys, categories, assignment, and status.",
   },
   {
     name: "grix-egg",
@@ -45,10 +45,6 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "message-unsend",
     description: "Silent Grix unsend workflow over the bundled websocket CLI.",
-  },
-  {
-    name: "grix-key-rotate",
-    description: "Rotate Grix agent API key with optional .env file update and masked stdout.",
   },
 ];
 

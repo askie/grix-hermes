@@ -1,7 +1,7 @@
 interface:
   display_name: "Grix Admin"
-  short_description: "Low-level WS admin for remote Grix agents, categories, assignment, and status."
-  default_prompt: "Use $grix-admin for remote Grix WS administration: API agent creation, category listing/creation/update, category assignment, and agent status checks."
+  short_description: "Low-level WS admin for remote Grix agents, API keys, categories, assignment, and status."
+  default_prompt: "Use $grix-admin for remote Grix WS administration: API agent creation, API key rotation, category listing/creation/update, category assignment, and agent status checks."
 
 policy:
   allow_implicit_invocation: true
