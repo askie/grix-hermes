@@ -1,0 +1,16 @@
+node_modules/
+.DS_Store
+*.log
+dist/
+tmp/
+coverage/
+
+# Compiled TypeScript output — `npm run build` produces .js next to .ts; not source-controlled.
+# SKILL.md files reference the compiled .js paths directly; end users run .js via `node`.
+**/*.js
+**/*.js.map
+**/*.d.ts
+
+# Exceptions: tooling scripts that are authored as plain JS (not TS).
+!scripts/clean_build.mjs
+.claude/
