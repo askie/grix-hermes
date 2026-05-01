@@ -30,13 +30,13 @@ metadata:
 
 ## 跨会话发送
 
-使用 `grix_invoke` 统一接口，通过已有 WebSocket 连接直接发送：
+使用 `grix_invoke` 统一接口，通过已有 WebSocket 连接发送：
 
 ```
-grix_invoke(action="send_message", params={"session_id": "<SESSION_ID>", "content": "<MESSAGE>"})
+grix_invoke(action="send_msg", params={"session_id": "<SESSION_ID>", "content": "<MESSAGE>"})
 ```
 
-支持 `session_id:thread_id` 格式指定话题。
+支持 `session_id:thread_id` 格式指定话题，支持 `quoted_message_id` 回复指定消息。
 
 ## 目标会话
 
@@ -80,7 +80,7 @@ Agent 资料卡：`grix://card/user_profile?user_id=<ID>&nickname=<NAME>`
 
 ## 输出
 
-- `grix_invoke(action="send_message")` 返回 `{"ok": true, "message_id": "..."}`
+- `grix_invoke(action="send_msg")` 返回 `{"msg_id": "...", "inbox_seq": ..., "created_at": "..."}`
 - 卡片链接为 `grix://card/...` 格式的 Markdown 链接
 
 ## 参考

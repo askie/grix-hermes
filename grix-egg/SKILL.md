@@ -98,7 +98,7 @@ grix_invoke(action="group_create", params={"name": "验收测试-<AGENT_NAME>", 
 **发送探针消息：**
 
 ```
-grix_invoke(action="send_message", params={"session_id": "<SESSION_ID>", "content": "<PROBE_MESSAGE>"})
+grix_invoke(action="send_msg", params={"session_id": "<SESSION_ID>", "content": "<PROBE_MESSAGE>"})
 ```
 
 **轮询验证回复：**
@@ -116,7 +116,7 @@ grix_invoke(action="message_history", params={"session_id": "<SESSION_ID>", "lim
 `[安装状态](grix://card/egg_install_status?install_id=<ID>&status=running&step=installing&summary=开始安装)`
 
 ```
-grix_invoke(action="send_message", params={"session_id": "<STATUS_SESSION_ID>", "content": "[安装状态](grix://card/egg_install_status?...)"})
+grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "content": "[安装状态](grix://card/egg_install_status?...)"})
 ```
 
 ## 脚本参数
