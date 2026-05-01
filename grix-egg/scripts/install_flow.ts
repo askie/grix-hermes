@@ -5,7 +5,9 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { hasWsCredentials } from "../../shared/cli/config.js";
+import { resolveRuntimeConfig, hasWsCredentials } from "../../shared/cli/config.js";
+import { AibotWsClient } from "../../shared/cli/aibot-client.js";
+import { buildConversationCard, buildEggStatusCard } from "../../shared/cli/card-links.js";
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -87,6 +89,13 @@ function parseJsonOutput(result: CommandResult): Record<string, unknown> {
   const raw = cleanText(result.stdout);
   if (!raw) return {};
   return JSON.parse(raw) as Record<string, unknown>;
+}
+
+async function getWsClient(hermesHome: string, profileName?: string): Promise<AibotWsClient> {
+  const config = resolveRuntimeConfig({ hermesHome, profileName });
+  const client = new AibotWsClient(config.connection);
+  await client.connect();
+  return client;
 }
 
 function appendTextFlag(cmd: string[], flag: string, value: unknown): void {
@@ -191,18 +200,18 @@ function inferProfileName(
 
 interface BindStep {
   kind: "register" | "admin" | "bind";
-  primary_cmd: string[];
-  primary_input: string | null;
+  /** For "register" and "bind" kinds: CLI command to execute */
+  primary_cmd?: string[];
+  /** For "register" and "bind" kinds: stdin input for the command */
+  primary_input?: string | null;
+  /** For "bind" kind with admin create: follow-up bind_local.js command */
   followup_cmd?: string[];
+  /** For "admin" kind: async function that creates the agent via WS */
+  adminCreateFn?: () => Promise<Record<string, unknown>>;
 }
 
 interface ScriptPaths {
   createAndBindScript: string;
-  adminScript: string;
-  cardScript: string;
-  sendScript: string;
-  groupScript: string;
-  queryScript: string;
   startScript: string;
   node: string;
   hermes: string;
@@ -249,15 +258,36 @@ function buildBindStep(
     return { kind: "register", primary_cmd: cmd, primary_input: null };
   }
 
-  if (Object.keys(admin).length > 0) {
-    const createCmd = [scripts.node, scripts.adminScript, "--action", "create_grix"];
-    appendTextFlag(createCmd, "--agent-name", admin.agent_name || bindOptions.profile_name);
-    appendTextFlag(createCmd, "--introduction", admin.introduction);
-    appendBoolFlag(createCmd, "--is-main", bindOptions.is_main || admin.is_main);
-    appendTextFlag(createCmd, "--category-id", admin.category_id);
-    appendTextFlag(createCmd, "--category-name", admin.category_name);
-    appendTextFlag(createCmd, "--parent-category-id", admin.parent_category_id);
+  // Build a helper to create an admin agent via WS client
+  const buildAdminCreateFn = (
+    agentName: string,
+    introduction: string | undefined,
+    isMain: string | undefined,
+    categoryId: string | undefined,
+    categoryName: string | undefined,
+    parentCategoryId: string | undefined,
+  ): (() => Promise<Record<string, unknown>>) => {
+    return async () => {
+      const client = await getWsClient(hermesHome);
+      try {
+        const params: Record<string, unknown> = {
+          agentName,
+          introduction: introduction || agentName,
+        };
+        if (cleanText(isMain)) params.isMain = cleanText(isMain) === "true";
+        if (cleanText(categoryId)) params.categoryId = cleanText(categoryId);
+        if (cleanText(categoryName)) params.categoryName = cleanText(categoryName);
+        if (cleanText(parentCategoryId)) params.parentCategoryId = cleanText(parentCategoryId);
+        const result = await client.agentInvoke("agent_api_create", params);
+        return (result ?? {}) as Record<string, unknown>;
+      } finally {
+        await client.disconnect();
+      }
+    };
+  };
 
+  // Build the followup bind_local.js command (used after admin create returns credentials)
+  const buildBindLocalCmd = (): string[] => {
     const bindCmd = [
       scripts.node,
       path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
@@ -282,12 +312,22 @@ function buildBindStep(
     appendTextFlag(bindCmd, "--home-channel-name", bindOptions.home_channel_name);
     bindCmd.push("--inherit-keys", "global");
     bindCmd.push("--json");
+    return bindCmd;
+  };
 
+  if (Object.keys(admin).length > 0) {
+    const agentName = cleanText(admin.agent_name || bindOptions.profile_name);
     return {
       kind: "admin",
-      primary_cmd: createCmd,
-      primary_input: null,
-      followup_cmd: bindCmd,
+      adminCreateFn: buildAdminCreateFn(
+        agentName,
+        cleanText(admin.introduction),
+        cleanText(admin.is_main) || bindOptions.is_main,
+        cleanText(admin.category_id),
+        cleanText(admin.category_name),
+        cleanText(admin.parent_category_id),
+      ),
+      followup_cmd: buildBindLocalCmd(),
     };
   }
 
@@ -305,40 +345,17 @@ function buildBindStep(
       cleanText(bindOptions.profile_name);
     if (agentName) {
       if (hasWsCredentials({ hermesHome })) {
-        const createCmd = [scripts.node, scripts.adminScript, "--action", "create_grix"];
-        appendTextFlag(createCmd, "--agent-name", agentName);
-        appendBoolFlag(createCmd, "--is-main", bindOptions.is_main);
-
-        const autoBindCmd = [
-          scripts.node,
-          path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
-          "--from-json",
-          "-",
-          "--profile-mode",
-          bindOptions.profile_mode,
-          "--install-dir",
-          installDir,
-          "--hermes",
-          scripts.hermes,
-          "--node",
-          scripts.node,
-        ];
-        appendTextFlag(autoBindCmd, "--profile-name", bindOptions.profile_name);
-        appendBoolFlag(autoBindCmd, "--is-main", bindOptions.is_main);
-        appendTextFlag(autoBindCmd, "--clone-from", bindOptions.clone_from);
-        appendTextFlag(autoBindCmd, "--account-id", bindOptions.account_id);
-        appendTextFlag(autoBindCmd, "--allowed-users", bindOptions.allowed_users);
-        appendBoolFlag(autoBindCmd, "--allow-all-users", bindOptions.allow_all_users);
-        appendTextFlag(autoBindCmd, "--home-channel", bindOptions.home_channel);
-        appendTextFlag(autoBindCmd, "--home-channel-name", bindOptions.home_channel_name);
-        autoBindCmd.push("--inherit-keys", "global");
-        autoBindCmd.push("--json");
-
         return {
           kind: "admin",
-          primary_cmd: createCmd,
-          primary_input: null,
-          followup_cmd: autoBindCmd,
+          adminCreateFn: buildAdminCreateFn(
+            agentName,
+            undefined,
+            bindOptions.is_main,
+            undefined,
+            undefined,
+            undefined,
+          ),
+          followup_cmd: buildBindLocalCmd(),
         };
       }
 
@@ -351,30 +368,7 @@ function buildBindStep(
     }
   }
 
-  const bindCmd = [
-    scripts.node,
-    path.join(projectRoot(), "grix-egg", "scripts", "bind_local.js"),
-    "--from-json",
-    "-",
-    "--profile-mode",
-    bindOptions.profile_mode,
-    "--install-dir",
-    installDir,
-    "--hermes",
-    scripts.hermes,
-    "--node",
-    scripts.node,
-  ];
-  appendTextFlag(bindCmd, "--profile-name", bindOptions.profile_name);
-  appendBoolFlag(bindCmd, "--is-main", bindOptions.is_main);
-  appendTextFlag(bindCmd, "--clone-from", bindOptions.clone_from);
-  appendTextFlag(bindCmd, "--account-id", bindOptions.account_id);
-  appendTextFlag(bindCmd, "--allowed-users", bindOptions.allowed_users);
-  appendBoolFlag(bindCmd, "--allow-all-users", bindOptions.allow_all_users);
-  appendTextFlag(bindCmd, "--home-channel", bindOptions.home_channel);
-  appendTextFlag(bindCmd, "--home-channel-name", bindOptions.home_channel_name);
-  bindCmd.push("--inherit-keys", "global");
-  bindCmd.push("--json");
+  const bindCmd = buildBindLocalCmd();
   const bindPayload = buildBindInputPayload(payload, bindOptions);
   return {
     kind: "bind",
@@ -484,52 +478,39 @@ function buildStartCommand(
 }
 
 function buildCardCommand(
-  scripts: ScriptPaths,
+  _scripts: ScriptPaths,
   installId: string,
   status: string,
   step: string,
   summary: string,
-): string[] {
-  return [
-    scripts.node,
-    scripts.cardScript,
-    "egg-status",
-    "--install-id",
-    installId,
-    "--status",
-    status,
-    "--step",
-    step,
-    "--summary",
-    summary,
-  ];
+): string {
+  return buildEggStatusCard({ installId, status, step, summary });
 }
 
-function sendMessage(
-  scripts: ScriptPaths,
+async function sendMessage(
+  hermesHome: string,
   target: string,
   message: string,
-  env: NodeJS.ProcessEnv,
-): Record<string, unknown> {
-  const result = runCommand(
-    [scripts.node, scripts.sendScript, "--to", target, "--message", message],
-    { env },
-  );
-  return parseJsonOutput(result);
+): Promise<Record<string, unknown>> {
+  const client = await getWsClient(hermesHome);
+  try {
+    return await client.sendText(target, message);
+  } finally {
+    await client.disconnect();
+  }
 }
 
-function maybeSendStatusCard(
-  scripts: ScriptPaths,
+async function maybeSendStatusCard(
+  hermesHome: string,
   installId: string,
   status: string,
   step: string,
   summary: string,
   target: string,
-  env: NodeJS.ProcessEnv,
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   if (!cleanText(target)) return null;
-  const card = runCommand(buildCardCommand(scripts, installId, status, step, summary), { env });
-  return sendMessage(scripts, target, cleanText(card.stdout), env);
+  const cardText = buildEggStatusCard({ installId, status, step, summary });
+  return await sendMessage(hermesHome, target, cardText);
 }
 
 function extractSessionId(payload: Record<string, unknown>): string {
@@ -547,33 +528,32 @@ function extractSessionId(payload: Record<string, unknown>): string {
   return "";
 }
 
-function createAcceptanceGroup(
-  scripts: ScriptPaths,
+async function createAcceptanceGroup(
+  hermesHome: string,
   acceptance: Record<string, unknown>,
-  env: NodeJS.ProcessEnv,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const memberIds = asList(acceptance.member_ids)
     .map((item) => cleanText(item))
     .filter(Boolean);
   const memberTypes = asList(acceptance.member_types)
     .map((item) => cleanText(item))
     .filter(Boolean);
-  const cmd = [
-    scripts.node,
-    scripts.groupScript,
-    "--action",
-    "create",
-    "--name",
-    cleanText(acceptance.group_name) || "Grix Hermes Acceptance",
-  ];
-  if (memberIds.length > 0) cmd.push("--member-ids", memberIds.join(","));
-  if (memberTypes.length > 0) cmd.push("--member-types", memberTypes.join(","));
-  return parseJsonOutput(runCommand(cmd, { env }));
+  const params: Record<string, unknown> = {
+    name: cleanText(acceptance.group_name) || "Grix Hermes Acceptance",
+  };
+  if (memberIds.length > 0) params.member_ids = memberIds;
+  if (memberTypes.length > 0) params.member_types = memberTypes;
+  const client = await getWsClient(hermesHome);
+  try {
+    const result = await client.agentInvoke("group_create", params);
+    return (result ?? {}) as Record<string, unknown>;
+  } finally {
+    await client.disconnect();
+  }
 }
 
 async function verifyAcceptance(
-  scripts: ScriptPaths,
-  env: NodeJS.ProcessEnv,
+  hermesHome: string,
   sessionId: string,
   acceptance: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -587,28 +567,32 @@ async function verifyAcceptance(
     };
   }
 
-  const sendPayload = sendMessage(scripts, sessionId, probeMessage, env);
+  const sendClient = await getWsClient(hermesHome);
+  let sendPayload: Record<string, unknown>;
+  try {
+    sendPayload = await sendClient.sendText(sessionId, probeMessage);
+  } finally {
+    await sendClient.disconnect();
+  }
+
   const timeoutSeconds = Number.parseInt(cleanText(acceptance.timeout_seconds) || "15", 10);
   const pollInterval = Number.parseFloat(cleanText(acceptance.poll_interval_seconds) || "1");
   const expectedLower = expectedSubstring.toLowerCase();
+  const historyLimit = cleanText(acceptance.history_limit) || "10";
 
   const deadline = Date.now() + Math.max(timeoutSeconds, 1) * 1000;
   let lastQuery: Record<string, unknown> = {};
   while (Date.now() < deadline) {
-    const queryResult = runCommand(
-      [
-        scripts.node,
-        scripts.queryScript,
-        "--action",
-        "message_history",
-        "--session-id",
-        sessionId,
-        "--limit",
-        cleanText(acceptance.history_limit) || "10",
-      ],
-      { env },
-    );
-    lastQuery = parseJsonOutput(queryResult);
+    const pollClient = await getWsClient(hermesHome);
+    try {
+      const queryResult = await pollClient.agentInvoke("message_history", {
+        session_id: sessionId,
+        limit: Number.parseInt(historyLimit, 10),
+      });
+      lastQuery = (queryResult ?? {}) as Record<string, unknown>;
+    } finally {
+      await pollClient.disconnect();
+    }
     const haystack = JSON.stringify(lastQuery).toLowerCase();
     if (expectedLower && haystack.includes(expectedLower)) {
       return {
@@ -698,11 +682,6 @@ async function main(): Promise<number> {
   const root = projectRoot();
   const scripts: ScriptPaths = {
     createAndBindScript: path.join(root, "grix-register", "scripts", "create_api_agent_and_bind.js"),
-    adminScript: path.join(root, "grix-admin", "scripts", "admin.js"),
-    cardScript: path.join(root, "message-send", "scripts", "card-link.js"),
-    sendScript: path.join(root, "message-send", "scripts", "send.js"),
-    groupScript: path.join(root, "grix-group", "scripts", "group.js"),
-    queryScript: path.join(root, "grix-query", "scripts", "query.js"),
     startScript: path.join(root, "grix-egg", "scripts", "start_gateway.js"),
     node: flags.node,
     hermes: flags.hermes,
@@ -754,9 +733,9 @@ async function main(): Promise<number> {
         install_dir: installDir,
         hermes_home: hermesHome,
         profile_name: bindOptions.profile_name,
+        bind_kind: bindStep.kind,
         commands: {
           install_bundle: installCmd,
-          bind: bindStep,
           start_gateway: buildStartCommand(scripts, hermesHome, bindOptions.profile_name || cleanText(payload.profile_name)),
         },
       };
@@ -776,14 +755,13 @@ async function main(): Promise<number> {
       hermes_home: hermesHome,
     };
 
-    maybeSendStatusCard(
-      scripts,
+    await maybeSendStatusCard(
+      hermesHome,
       installId,
       "running",
       "preparing",
       "开始执行 Hermes Grix 安装",
       statusTarget,
-      env,
     );
 
     const profileDirForBackup = resolveProfileDir(hermesHome, bindOptions.profile_name);
@@ -796,23 +774,29 @@ async function main(): Promise<number> {
       stderr: cleanText(installResultRaw.stderr),
     };
 
-    const bindResultRaw = runCommand(bindStep.primary_cmd, {
-      env,
-      inputText: bindStep.primary_input ?? undefined,
-    });
-    if (bindStep.kind === "admin" && bindStep.followup_cmd) {
-      const createdPayload = parseJsonOutput(bindResultRaw);
-      const followupRaw = runCommand(bindStep.followup_cmd, {
+    if (bindStep.kind === "admin" && bindStep.adminCreateFn) {
+      // Admin path: create agent via WS, then bind locally
+      const createdPayload = await bindStep.adminCreateFn();
+      if (bindStep.followup_cmd) {
+        const followupRaw = runCommand(bindStep.followup_cmd, {
+          env,
+          inputText: JSON.stringify(createdPayload),
+        });
+        const bindPayload = parseJsonOutput(followupRaw);
+        const bindResult =
+          bindPayload.bind_result && typeof bindPayload.bind_result === "object"
+            ? (bindPayload.bind_result as Record<string, unknown>)
+            : bindPayload;
+        executionLog.bind_result = bindResult;
+      } else {
+        executionLog.bind_result = createdPayload;
+      }
+    } else if (bindStep.primary_cmd) {
+      // Register or direct bind path: execute CLI command
+      const bindResultRaw = runCommand(bindStep.primary_cmd, {
         env,
-        inputText: JSON.stringify(createdPayload),
+        inputText: bindStep.primary_input ?? undefined,
       });
-      const bindPayload = parseJsonOutput(followupRaw);
-      const bindResult =
-        bindPayload.bind_result && typeof bindPayload.bind_result === "object"
-          ? (bindPayload.bind_result as Record<string, unknown>)
-          : bindPayload;
-      executionLog.bind_result = bindResult;
-    } else {
       const bindPayload = parseJsonOutput(bindResultRaw);
       const bindResult =
         bindPayload.bind_result && typeof bindPayload.bind_result === "object"
@@ -843,7 +827,7 @@ async function main(): Promise<number> {
     executionLog.start_result = startResult;
 
     if (Object.keys(acceptance).length > 0) {
-      const groupPayload = createAcceptanceGroup(scripts, acceptance, env);
+      const groupPayload = await createAcceptanceGroup(hermesHome, acceptance);
       const acceptanceSessionId = extractSessionId(groupPayload);
       if (!acceptanceSessionId) {
         throw new Error(
@@ -851,30 +835,19 @@ async function main(): Promise<number> {
         );
       }
 
-      const conversationCard = runCommand(
-        [
-          scripts.node,
-          scripts.cardScript,
-          "conversation",
-          "--session-id",
-          acceptanceSessionId,
-          "--session-type",
-          cleanText(acceptance.session_type) || "group",
-          "--title",
-          cleanText(acceptance.group_name) || "验收测试群",
-        ],
-        { env },
-      );
-      const conversationCardText = cleanText(conversationCard.stdout);
+      const conversationCardText = buildConversationCard({
+        sessionId: acceptanceSessionId,
+        sessionType: cleanText(acceptance.session_type) || "group",
+        title: cleanText(acceptance.group_name) || "验收测试群",
+      });
 
       let cardDelivery: Record<string, unknown> | null = null;
       if (conversationCardTarget) {
-        cardDelivery = sendMessage(scripts, conversationCardTarget, conversationCardText, env);
+        cardDelivery = await sendMessage(hermesHome, conversationCardTarget, conversationCardText);
       }
 
       const verification = await verifyAcceptance(
-        scripts,
-        env,
+        hermesHome,
         acceptanceSessionId,
         acceptance,
       );
@@ -889,13 +862,12 @@ async function main(): Promise<number> {
     }
 
     maybeSendStatusCard(
-      scripts,
+      hermesHome,
       installId,
       "success",
       "complete",
       "Hermes Grix 安装、绑定和启动完成",
       statusTarget,
-      env,
     );
 
     const payloadOut = { ok: true, dry_run: false, ...executionLog };
@@ -906,16 +878,15 @@ async function main(): Promise<number> {
     }
     return 0;
   } catch (error) {
-    if (env && installId && statusTarget) {
+    if (installId && statusTarget) {
       try {
-        maybeSendStatusCard(
-          scripts,
+        await maybeSendStatusCard(
+          resolveHermesHome(flags.hermesHome),
           installId,
           "failed",
           "error",
           cleanText(error instanceof Error ? error.message : String(error)),
           statusTarget,
-          env,
         );
       } catch {
         // best-effort

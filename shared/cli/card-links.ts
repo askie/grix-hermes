@@ -1,7 +1,4 @@
-#!/usr/bin/env node
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-function cleanText(value: unknown): string {
+export function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
@@ -102,68 +99,3 @@ export function dispatchCardBuilder(kind: string, params: Record<string, unknown
   if (kind === "egg-status") return buildEggStatusCard(params as unknown as EggStatusCardParams);
   throw new Error(`Unsupported card kind: ${kind}`);
 }
-
-function toCamelFlag(key: string): string {
-  return key.replace(/-([a-z])/g, (_match, ch: string) => ch.toUpperCase());
-}
-
-interface ParsedArgs {
-  positional: string[];
-  flags: Record<string, string | boolean>;
-}
-
-function parseArgs(argv: string[]): ParsedArgs {
-  const positional: string[] = [];
-  const flags: Record<string, string | boolean> = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i]!;
-    if (!token.startsWith("--")) {
-      positional.push(token);
-      continue;
-    }
-    const key = toCamelFlag(token.slice(2));
-    const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
-      flags[key] = true;
-      continue;
-    }
-    flags[key] = next;
-    i += 1;
-  }
-  return { positional, flags };
-}
-
-function isDirectRun(): boolean {
-  if (!process.argv[1]) return false;
-  const thisUrl = import.meta.url;
-  const entryUrl = pathToFileURL(process.argv[1]).href;
-  return thisUrl === entryUrl;
-}
-
-export function runCli(argv: string[]): void {
-  const { positional, flags } = parseArgs(argv);
-  const kind = positional[0];
-  if (!kind || ["help", "--help", "-h"].includes(kind)) {
-    process.stdout.write(`Usage:
-  node shared/cli/card-links.js conversation --session-id <id> --session-type group --title <title>
-  node shared/cli/card-links.js user-profile --user-id <id> --nickname <name> [--avatar-url <url>]
-  node shared/cli/card-links.js egg-status --install-id <id> --status running --step installing --summary <text>
-`);
-    return;
-  }
-  process.stdout.write(`${dispatchCardBuilder(kind, flags)}\n`);
-}
-
-if (isDirectRun()) {
-  try {
-    runCli(process.argv.slice(2));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exit(1);
-  }
-}
-
-// Convince tsc this file is a module when no exports are used directly.
-export const __cardLinksModule = true;
-export { fileURLToPath };

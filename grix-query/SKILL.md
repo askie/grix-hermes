@@ -16,19 +16,13 @@ metadata:
 
 ## 执行方式
 
-优先使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用，无需新建连接：
+使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用：
 
 ```
 grix_invoke(action="contact_search", params={"keyword": "alice"})
 grix_invoke(action="session_search", params={"keyword": "测试群"})
 grix_invoke(action="message_history", params={"session_id": "<SESSION_ID>", "limit": 20})
 grix_invoke(action="message_search", params={"session_id": "<SESSION_ID>", "keyword": "身份", "limit": 20})
-```
-
-如果 `grix_invoke` 不可用（非 Gateway 环境），回退到 CLI：
-
-```bash
-node scripts/query.js --action <action> ...
 ```
 
 ## 查询类型

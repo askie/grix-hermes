@@ -1,60 +1,19 @@
 #!/usr/bin/env node
-import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
+import { resolveRuntimeConfig } from "../../shared/cli/config.js";
+import { AibotWsClient } from "../../shared/cli/aibot-client.js";
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-interface CommandResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-function runCommand(cmd: string[], env?: NodeJS.ProcessEnv, check = true): CommandResult {
-  const [bin, ...rest] = cmd;
-  if (!bin) throw new Error("runCommand received empty cmd");
-  const result = spawnSync(bin, rest, { encoding: "utf8", env });
-  const output: CommandResult = {
-    code: result.status ?? -1,
-    stdout: (result.stdout || "").trim(),
-    stderr: (result.stderr || "").trim(),
-  };
-  if (check && output.code !== 0) {
-    throw new Error(output.stderr || output.stdout || `command failed: ${cmd.join(" ")}`);
-  }
-  return output;
-}
-
-function parseJsonOutput(result: CommandResult): Record<string, unknown> {
-  const raw = cleanText(result.stdout);
-  if (!raw) return {};
-  return JSON.parse(raw) as Record<string, unknown>;
-}
-
-function extractSessionId(payload: Record<string, unknown>): string {
-  for (const key of ["session_id", "sessionId"]) {
-    const value = cleanText(payload[key]);
-    if (value) return value;
-  }
-  for (const nestedKey of ["data", "ack", "resolvedTarget"]) {
-    const nested = asRecord(payload[nestedKey]);
-    if (Object.keys(nested).length > 0) {
-      const sessionId = extractSessionId(nested);
-      if (sessionId) return sessionId;
-    }
-  }
-  return "";
+async function getWsClient(hermesHome: string, profileName?: string): Promise<AibotWsClient> {
+  const config = resolveRuntimeConfig({ hermesHome, profileName });
+  const client = new AibotWsClient(config.connection);
+  await client.connect();
+  return client;
 }
 
 interface Flags {
@@ -65,14 +24,12 @@ interface Flags {
   pollIntervalSeconds: number;
   historyLimit: number;
   node: string;
-  sendScript: string;
-  queryScript: string;
+  hermesHome: string;
+  profileName: string;
   json: boolean;
 }
 
 function parseArgs(argv: string[]): Flags {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const root = path.resolve(here, "..", "..");
   const flags: Flags = {
     sessionId: "",
     probeMessage: "",
@@ -81,8 +38,8 @@ function parseArgs(argv: string[]): Flags {
     pollIntervalSeconds: 1,
     historyLimit: 10,
     node: "node",
-    sendScript: path.join(root, "message-send", "scripts", "send.js"),
-    queryScript: path.join(root, "grix-query", "scripts", "query.js"),
+    hermesHome: "",
+    profileName: "",
     json: false,
   };
   const take = (i: number): [string, number] => {
@@ -99,8 +56,8 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--poll-interval-seconds") { const [v, j] = take(i); flags.pollIntervalSeconds = Number.parseFloat(v); i = j; continue; }
     if (token === "--history-limit") { const [v, j] = take(i); flags.historyLimit = Number.parseInt(v, 10); i = j; continue; }
     if (token === "--node") { const [v, j] = take(i); flags.node = v; i = j; continue; }
-    if (token === "--send-script") { const [v, j] = take(i); flags.sendScript = v; i = j; continue; }
-    if (token === "--query-script") { const [v, j] = take(i); flags.queryScript = v; i = j; continue; }
+    if (token === "--hermes-home") { const [v, j] = take(i); flags.hermesHome = v; i = j; continue; }
+    if (token === "--profile-name") { const [v, j] = take(i); flags.profileName = v; i = j; continue; }
     if (token === "--json") { flags.json = true; continue; }
   }
   return flags;
@@ -121,33 +78,35 @@ async function main(): Promise<number> {
     if (!flags.probeMessage) throw new Error("--probe-message is required");
     if (!flags.expectedSubstring) throw new Error("--expected-substring is required");
 
-    const env = process.env;
+    const hermesHome = cleanText(flags.hermesHome) || cleanText(process.env.HERMES_HOME) || "~/.hermes";
+    const expandedHome = hermesHome.startsWith("~")
+      ? path.join(os.homedir(), hermesHome.slice(2))
+      : path.resolve(hermesHome);
+    const profileName = cleanText(flags.profileName) || undefined;
 
-    const sendResult = runCommand(
-      [flags.node, flags.sendScript, "--to", flags.sessionId, "--message", flags.probeMessage],
-      env,
-    );
-    const sendPayload = parseJsonOutput(sendResult);
+    const sendClient = await getWsClient(expandedHome, profileName);
+    let sendPayload: Record<string, unknown>;
+    try {
+      sendPayload = await sendClient.sendText(flags.sessionId, flags.probeMessage);
+    } finally {
+      await sendClient.disconnect();
+    }
 
     const expectedLower = flags.expectedSubstring.toLowerCase();
     const deadline = Date.now() + Math.max(flags.timeoutSeconds, 1) * 1000;
     let lastQuery: Record<string, unknown> = {};
 
     while (Date.now() < deadline) {
-      const queryResult = runCommand(
-        [
-          flags.node,
-          flags.queryScript,
-          "--action",
-          "message_history",
-          "--session-id",
-          flags.sessionId,
-          "--limit",
-          String(flags.historyLimit),
-        ],
-        env,
-      );
-      lastQuery = parseJsonOutput(queryResult);
+      const pollClient = await getWsClient(expandedHome, profileName);
+      try {
+        const queryResult = await pollClient.agentInvoke("message_history", {
+          session_id: flags.sessionId,
+          limit: flags.historyLimit,
+        });
+        lastQuery = (queryResult ?? {}) as Record<string, unknown>;
+      } finally {
+        await pollClient.disconnect();
+      }
       const haystack = JSON.stringify(lastQuery).toLowerCase();
       if (haystack.includes(expectedLower)) {
         const payload = {

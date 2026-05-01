@@ -30,7 +30,7 @@ metadata:
 
 ## 跨会话发送
 
-优先使用 Hermes 原生 `send_message` 工具，通过已有 WebSocket 连接直接发送：
+使用 Hermes 原生 `send_message` 工具，通过已有 WebSocket 连接直接发送：
 
 ```json
 {
@@ -42,23 +42,6 @@ metadata:
 
 支持 `session_id:thread_id` 格式指定话题。
 
-如果 `send_message` 不可用（非 Gateway 环境），回退到 CLI：
-
-```bash
-node scripts/send.js --to <SESSION_ID_OR_ROUTE_SESSION_KEY> --message "..."
-```
-
-完整参数（CLI 回退）：
-
-```bash
-node scripts/send.js \
-  --to <SESSION_ID_OR_ROUTE_SESSION_KEY> \
-  --message "..." \
-  --thread-id <THREAD_ID> \
-  --reply-to-message-id <MSG_ID> \
-  --event-id <EVENT_ID>
-```
-
 ## 目标会话
 
 - 已知 `session_id` 时直接发送
@@ -67,58 +50,42 @@ node scripts/send.js \
 
 ## 卡片链接
 
-卡片链接通过 CLI 生成（无需 WebSocket 连接）：
+卡片链接使用 `grix://card/...` URL scheme 直接拼接：
 
-会话卡片：
-
-```bash
-node scripts/card-link.js conversation --session-id <SESSION_ID> --session-type group --title 测试群
-node scripts/card-link.js conversation --session-id <SESSION_ID> --session-type single --title 对话 --peer-id <PEER_ID>
-```
-
-Agent 资料卡：
-
-```bash
-node scripts/card-link.js user-profile --user-id <AGENT_ID> --nickname writer-hermes
-```
-
-安装状态卡：
-
-```bash
-node scripts/card-link.js egg-status --install-id <INSTALL_ID> --status running --step installing --summary 已开始安装
-node scripts/card-link.js egg-status --install-id <INSTALL_ID> --status failed --step error --summary 安装失败 --target-agent-id <AGENT_ID> --error-code ERR_001 --error-msg "连接超时"
-```
+会话卡片：`grix://card/conversation?session_id=<ID>&session_type=group&title=<TITLE>`
+Agent 资料卡：`grix://card/user_profile?user_id=<ID>&nickname=<NAME>`
+安装状态卡：`grix://card/egg_install_status?install_id=<ID>&status=running&step=installing&summary=<TEXT>`
 
 ## 卡片参数
 
 **conversation**
 
-- `--session-id`：会话 ID
-- `--session-type`：`group` / `single`
-- `--title`：显示标题
-- `--peer-id`：单聊对方用户 ID
+- `session_id`：会话 ID
+- `session_type`：`group` / `single`
+- `title`：显示标题
+- `peer_id`：单聊对方用户 ID
 
-**user-profile**
+**user_profile**
 
-- `--user-id`：用户或 agent ID
-- `--nickname`：显示昵称
-- `--peer-type`：默认 `2`
-- `--avatar-url`：头像 URL
+- `user_id`：用户或 agent ID
+- `nickname`：显示昵称
+- `peer_type`：默认 `2`
+- `avatar_url`：头像 URL
 
-**egg-status**
+**egg_install_status**
 
-- `--install-id`：安装实例 ID
-- `--status`：`running` / `success` / `failed`
-- `--step`：当前步骤名
-- `--summary`：步骤摘要
-- `--target-agent-id`：目标 agent ID
-- `--error-code`：错误码
-- `--error-msg`：错误消息
+- `install_id`：安装实例 ID
+- `status`：`running` / `success` / `failed`
+- `step`：当前步骤名
+- `summary`：步骤摘要
+- `target_agent_id`：目标 agent ID
+- `error_code`：错误码
+- `error_msg`：错误消息
 
 ## 输出
 
-- `send_message` 或 `send.js` 返回发送结果
-- `card-link.js` 返回单行 Markdown 卡片链接
+- `send_message` 返回发送结果
+- 卡片链接为 `grix://card/...` 格式的 Markdown 链接
 
 ## 参考
 

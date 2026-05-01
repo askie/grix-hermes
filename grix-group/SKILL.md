@@ -16,18 +16,12 @@ metadata:
 
 ## 执行方式
 
-优先使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用，无需新建连接：
+使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用：
 
 ```
 grix_invoke(action="group_create", params={"name": "版本验收群", "member_ids": ["1001", "2001"], "member_types": [1, 2]})
 grix_invoke(action="group_detail_read", params={"session_id": "<SESSION_ID>"})
 grix_invoke(action="group_member_add", params={"session_id": "<SESSION_ID>", "member_ids": ["1002", "1003"]})
-```
-
-如果 `grix_invoke` 不可用（非 Gateway 环境），回退到 CLI：
-
-```bash
-node scripts/group.js --action <action> ...
 ```
 
 ## 群生命周期

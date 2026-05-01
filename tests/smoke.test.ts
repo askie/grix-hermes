@@ -30,8 +30,14 @@ describe("smoke", () => {
     }
   });
 
-  it("compiled cli entry point exists", () => {
-    const cliPath = path.join(root, "shared", "cli", "grix-hermes.js");
-    assert.ok(fs.existsSync(cliPath), "missing shared/cli/grix-hermes.js");
+  it("compiled shared modules exist", () => {
+    const modules = [
+      "shared/cli/card-links.js",
+      "shared/cli/config.js",
+      "shared/cli/aibot-client.js",
+    ];
+    for (const mod of modules) {
+      assert.ok(fs.existsSync(path.join(root, mod)), `missing ${mod}`);
+    }
   });
 });

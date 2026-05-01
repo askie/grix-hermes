@@ -16,7 +16,7 @@ metadata:
 
 ## 执行方式
 
-优先使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用，无需新建连接：
+使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用：
 
 ```
 grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main": false, "introduction": "<TEXT>"})
@@ -27,14 +27,6 @@ grix_invoke(action="agent_category_create", params={"name": "<NAME>", "parent_id
 grix_invoke(action="agent_category_update", params={"category_id": "<ID>", "name": "<NAME>", "parent_id": "0"})
 grix_invoke(action="agent_category_assign", params={"agent_id": "<AGENT_ID>", "category_id": "<CATEGORY_ID>"})
 ```
-
-如果 `grix_invoke` 不可用（非 Gateway 环境），回退到 CLI：
-
-```bash
-node scripts/admin.js --action <action> ... --json
-```
-
-注意：CLI 的 `key_rotate` 额外支持 `--env-file` 参数来自动更新 `.env` 文件。如需此功能，请使用 CLI 回退方式。
 
 ## 能力
 

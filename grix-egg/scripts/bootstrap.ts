@@ -9,7 +9,10 @@ import {
   formatWsCredentialDiagnostics,
   getWsCredentialDiagnostics,
   hasWsCredentials,
+  resolveRuntimeConfig,
 } from "../../shared/cli/config.js";
+import { AibotWsClient } from "../../shared/cli/aibot-client.js";
+import { buildConversationCard, buildEggStatusCard } from "../../shared/cli/card-links.js";
 
 // ---------------------------------------------------------------------------
 // Section 1: Utility functions
@@ -172,6 +175,13 @@ function parseJsonOutput(result: CommandResult): Record<string, unknown> {
   const raw = cleanText(result.stdout);
   if (!raw) return {};
   return JSON.parse(raw) as Record<string, unknown>;
+}
+
+async function getWsClient(hermesHome: string, profileName?: string): Promise<AibotWsClient> {
+  const config = resolveRuntimeConfig({ hermesHome, profileName });
+  const client = new AibotWsClient(config.connection);
+  await client.connect();
+  return client;
 }
 
 function appendTextFlag(cmd: string[], flag: string, value: unknown): void {
@@ -409,28 +419,18 @@ function suggestForError(step: StepName, errorMessage: string): string {
 // ---------------------------------------------------------------------------
 
 interface ScriptPaths {
-  adminScript: string;
   bindScript: string;
   createAndBindScript: string;
   installBin: string;
   startScript: string;
-  cardScript: string;
-  sendScript: string;
-  groupScript: string;
-  queryScript: string;
 }
 
 function resolveScripts(root: string): ScriptPaths {
   return {
-    adminScript: path.join(root, "grix-admin", "scripts", "admin.js"),
     bindScript: path.join(root, "grix-egg", "scripts", "bind_local.js"),
     createAndBindScript: path.join(root, "grix-register", "scripts", "create_api_agent_and_bind.js"),
     installBin: path.join(root, "bin", "grix-hermes.js"),
     startScript: path.join(root, "grix-egg", "scripts", "start_gateway.js"),
-    cardScript: path.join(root, "message-send", "scripts", "card-link.js"),
-    sendScript: path.join(root, "message-send", "scripts", "send.js"),
-    groupScript: path.join(root, "grix-group", "scripts", "group.js"),
-    queryScript: path.join(root, "grix-query", "scripts", "query.js"),
   };
 }
 
@@ -640,18 +640,18 @@ function stepInstall(
   });
 }
 
-function stepCreate(
+async function stepCreate(
   flags: Flags,
   state: StateFile,
   scripts: ScriptPaths,
   hermesHome: string,
   env: NodeJS.ProcessEnv,
-): RuntimeCredentials | null {
+): Promise<RuntimeCredentials | null> {
   if (stepIsDone(state, "create")) return credentialsFromFlags(flags);
 
   const detectedPath = state.steps.detect?.result?.["path"];
   if (detectedPath === "ws") {
-    return stepCreateWs(flags, state, scripts, env);
+    return stepCreateWs(flags, state, hermesHome);
   }
   if (detectedPath === "existing") {
     return stepCreateExisting(flags, state);
@@ -660,51 +660,56 @@ function stepCreate(
   return null;
 }
 
-function stepCreateWs(
+async function stepCreateWs(
   flags: Flags,
   state: StateFile,
-  scripts: ScriptPaths,
-  env: NodeJS.ProcessEnv,
-): RuntimeCredentials {
-  const cmd = [flags.node, scripts.adminScript, "--action", "create_grix"];
-  appendTextFlag(cmd, "--agent-name", flags.agentName);
-  appendTextFlag(cmd, "--introduction", flags.agentName);
-  appendTextFlag(cmd, "--is-main", flags.isMain);
-  appendTextFlag(cmd, "--category-name", flags.categoryName);
+  hermesHome: string,
+): Promise<RuntimeCredentials> {
+  const profileName = cleanText(flags.profileName) || flags.agentName;
+  const client = await getWsClient(hermesHome, profileName);
+  try {
+    const params: Record<string, unknown> = {
+      agentName: flags.agentName,
+      introduction: flags.agentName,
+    };
+    if (cleanText(flags.isMain)) params.isMain = flags.isMain === "true";
+    const categoryName = cleanText(flags.categoryName);
+    if (categoryName) params.categoryName = categoryName;
 
-  const result = runCommand(cmd, { env });
-  const payload = parseJsonOutput(result);
+    const result = await client.agentInvoke("agent_api_create", params);
+    const data = (result as Record<string, unknown>).data || result;
+    const agentId = cleanText((data as Record<string, unknown>).agent_id || (data as Record<string, unknown>).id);
+    const apiEndpoint = cleanText((data as Record<string, unknown>).api_endpoint || (data as Record<string, unknown>).endpoint);
+    const apiKey = cleanText((data as Record<string, unknown>).api_key);
+    const agentName = cleanText((data as Record<string, unknown>).agent_name || (data as Record<string, unknown>).name || flags.agentName);
 
-  const createdAgent = extractNested(payload, "data") || payload;
-  const agentId = cleanText(createdAgent.agent_id || createdAgent.id);
-  const apiEndpoint = cleanText(createdAgent.api_endpoint || createdAgent.endpoint);
-  const apiKey = cleanText(createdAgent.api_key);
-  const agentName = cleanText(createdAgent.agent_name || createdAgent.name || flags.agentName);
+    if (!agentId || !apiEndpoint || !apiKey) {
+      throw new BootstrapError(
+        "create", 3,
+        `WS 创建 agent 未返回有效凭证。agent_id=${agentId}, api_endpoint=${apiEndpoint}, api_key=${apiKey ? "ak_***" : ""}`,
+        "检查 WS 连接和 GRIX_API_KEY 是否有效。确认 agent_api_create 接口正常。",
+        JSON.stringify(data),
+      );
+    }
 
-  if (!agentId || !apiEndpoint || !apiKey) {
-    throw new BootstrapError(
-      "create", 3,
-      `WS 创建 agent 未返回有效凭证。agent_id=${agentId}, api_endpoint=${apiEndpoint}, api_key=${apiKey ? "ak_***" : ""}`,
-      "检查 WS 连接和 GRIX_API_KEY 是否有效。确认 agent_api_create 接口正常。",
-      result.stderr || result.stdout,
-    );
+    markStepDone(state, "create", {
+      path: "ws",
+      agent_id: agentId,
+      agent_name: agentName,
+      api_endpoint: apiEndpoint,
+      api_key: apiKey ? "ak_***" : "",
+    });
+
+    return {
+      agentId,
+      agentName,
+      apiEndpoint,
+      apiKey,
+      profileName,
+    };
+  } finally {
+    await client.disconnect();
   }
-
-  markStepDone(state, "create", {
-    path: "ws",
-    agent_id: agentId,
-    agent_name: agentName,
-    api_endpoint: apiEndpoint,
-    api_key: apiKey ? "ak_***" : "",
-  });
-
-  return {
-    agentId,
-    agentName,
-    apiEndpoint,
-    apiKey,
-    profileName: cleanText(flags.profileName) || flags.agentName,
-  };
 }
 
 function stepCreateExisting(flags: Flags, state: StateFile): RuntimeCredentials {
@@ -921,9 +926,9 @@ function stepGateway(
 async function stepAccept(
   flags: Flags,
   state: StateFile,
-  scripts: ScriptPaths,
+  _scripts: ScriptPaths,
   hermesHome: string,
-  env: NodeJS.ProcessEnv,
+  _env: NodeJS.ProcessEnv,
 ): Promise<void> {
   if (stepIsDone(state, "accept")) return;
 
@@ -946,104 +951,98 @@ async function stepAccept(
     );
   }
 
-  // Create test group
-  const groupCmd = [
-    flags.node, scripts.groupScript,
-    "--action", "create",
-    "--name", `验收测试-${state.agent_name}`,
-  ];
-  const acceptanceMembers = buildAcceptanceMembers(targetAgentId, flags.memberIds, flags.memberTypes);
-  if (acceptanceMembers.memberIds.length > 0) {
-    groupCmd.push("--member-ids", acceptanceMembers.memberIds.join(","));
-    groupCmd.push("--member-types", acceptanceMembers.memberTypes.join(","));
-  }
-  const groupResult = runCommand(groupCmd, { env });
-  const groupPayload = parseJsonOutput(groupResult);
-  const acceptanceSessionId = extractSessionId(groupPayload);
+  const profileName = state.profile_name || cleanText(flags.profileName) || flags.agentName;
+  const client = await getWsClient(hermesHome, profileName);
+  try {
+    // Create test group
+    const groupParams: Record<string, unknown> = { name: `验收测试-${state.agent_name}` };
+    const acceptanceMembers = buildAcceptanceMembers(targetAgentId, flags.memberIds, flags.memberTypes);
+    if (acceptanceMembers.memberIds.length > 0) {
+      groupParams.member_ids = acceptanceMembers.memberIds;
+      groupParams.member_types = acceptanceMembers.memberTypes;
+    }
+    const groupResult = await client.agentInvoke("group_create", groupParams);
+    const groupData = (groupResult as Record<string, unknown>).data || groupResult;
+    const acceptanceSessionId = extractSessionId(groupData as Record<string, unknown>);
 
-  if (!acceptanceSessionId) {
+    if (!acceptanceSessionId) {
+      throw new BootstrapError(
+        "accept", 7,
+        `测试群创建未返回 session_id: ${JSON.stringify(groupData)}`,
+        "检查 Grix WS 连接是否正常，session 是否有效。",
+        JSON.stringify(groupResult),
+      );
+    }
+
+    // Send conversation card to status_target
+    const statusTarget = cleanText(flags.statusTarget);
+    if (statusTarget) {
+      const cardText = buildConversationCard({
+        sessionId: acceptanceSessionId,
+        sessionType: "group",
+        title: `验收测试-${state.agent_name}`,
+      });
+      await client.sendText(statusTarget, cardText);
+    }
+
+    // Send probe message to test group
+    const probeSentAtMs = Date.now();
+    const probeSendResult = await client.sendText(acceptanceSessionId, probeMessage);
+    const probeMessageId = extractMessageId(probeSendResult as Record<string, unknown>);
+
+    // Poll message history for the target agent's reply after the probe.
+    const timeoutSeconds = parsePositiveFloat(flags.acceptTimeoutSeconds, 15);
+    const pollInterval = parsePositiveFloat(flags.acceptPollIntervalSeconds, 1);
+    const expectedLower = expectedSubstring.toLowerCase();
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    let lastQuery: Record<string, unknown> = {};
+    let lastCandidateCount = 0;
+
+    while (Date.now() < deadline) {
+      const queryResult = await client.agentInvoke("message_history", {
+        session_id: acceptanceSessionId,
+        limit: 10,
+      });
+      const queryPayload = (queryResult ?? {}) as Record<string, unknown>;
+      const extractedData = queryPayload["data"] as Record<string, unknown> | undefined;
+      lastQuery = extractedData && Object.keys(extractedData).length > 0
+        ? extractedData
+        : queryPayload;
+      const messages = extractMessageRecords(lastQuery);
+      lastCandidateCount = messages.length;
+      const verifiedMessage = messages.find((message) =>
+        messageMatchesAcceptance({
+          message,
+          targetAgentId,
+          expectedLower,
+          probeMessageId,
+          probeSentAtMs,
+        }),
+      );
+      if (verifiedMessage) {
+        markStepDone(state, "accept", {
+          session_id: acceptanceSessionId,
+          verified: true,
+          target_agent_id: targetAgentId,
+          probe_message: probeMessage,
+          probe_message_id: probeMessageId,
+          expected_substring: expectedSubstring,
+          verified_message: verifiedMessage,
+        });
+        return;
+      }
+      await sleep(pollInterval * 1000);
+    }
+
     throw new BootstrapError(
       "accept", 7,
-      `测试群创建未返回 session_id: ${JSON.stringify(groupPayload)}`,
-      "检查 Grix WS 连接是否正常，session 是否有效。",
-      groupResult.stderr || groupResult.stdout,
+      `验收超时：agent 未在 ${timeoutSeconds} 秒内回复包含「${expectedSubstring}」的内容`,
+      "检查：(1) SOUL.md 内容是否正确，(2) 网关是否在线（hermes --profile <name> gateway status），(3) agent 是否已连接到 Grix。",
+      `target_agent_id=${targetAgentId}, probe_message_id=${probeMessageId}, candidates=${lastCandidateCount}, last_query=${JSON.stringify(lastQuery)}`,
     );
+  } finally {
+    await client.disconnect();
   }
-
-  // Send conversation card to status_target
-  const statusTarget = cleanText(flags.statusTarget);
-  if (statusTarget) {
-    const cardCmd = [
-      flags.node, scripts.cardScript,
-      "conversation",
-      "--session-id", acceptanceSessionId,
-      "--session-type", "group",
-      "--title", `验收测试-${state.agent_name}`,
-    ];
-    const cardResult = runCommand(cardCmd, { env });
-    const cardText = cleanText(cardResult.stdout);
-    if (cardText) {
-      runCommand([flags.node, scripts.sendScript, "--to", statusTarget, "--message", cardText], { env });
-    }
-  }
-
-  // Send probe message to test group
-  const probeSentAtMs = Date.now();
-  const probeSendResult = runCommand(
-    [flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", probeMessage],
-    { env },
-  );
-  const probeSendPayload = parseJsonOutput(probeSendResult);
-  const probeMessageId = extractMessageId(probeSendPayload);
-
-  // Poll message history for the target agent's reply after the probe.
-  const timeoutSeconds = parsePositiveFloat(flags.acceptTimeoutSeconds, 15);
-  const pollInterval = parsePositiveFloat(flags.acceptPollIntervalSeconds, 1);
-  const expectedLower = expectedSubstring.toLowerCase();
-  const deadline = Date.now() + timeoutSeconds * 1000;
-  let lastQuery: Record<string, unknown> = {};
-  let lastCandidateCount = 0;
-
-  while (Date.now() < deadline) {
-    const queryResult = runCommand([
-      flags.node, scripts.queryScript,
-      "--action", "message_history",
-      "--session-id", acceptanceSessionId,
-      "--limit", "10",
-    ], { env });
-    lastQuery = parseJsonOutput(queryResult);
-    const messages = extractMessageRecords(lastQuery);
-    lastCandidateCount = messages.length;
-    const verifiedMessage = messages.find((message) =>
-      messageMatchesAcceptance({
-        message,
-        targetAgentId,
-        expectedLower,
-        probeMessageId,
-        probeSentAtMs,
-      }),
-    );
-    if (verifiedMessage) {
-      markStepDone(state, "accept", {
-        session_id: acceptanceSessionId,
-        verified: true,
-        target_agent_id: targetAgentId,
-        probe_message: probeMessage,
-        probe_message_id: probeMessageId,
-        expected_substring: expectedSubstring,
-        verified_message: verifiedMessage,
-      });
-      return;
-    }
-    await sleep(pollInterval * 1000);
-  }
-
-  throw new BootstrapError(
-    "accept", 7,
-    `验收超时：agent 未在 ${timeoutSeconds} 秒内回复包含「${expectedSubstring}」的内容`,
-    "检查：(1) SOUL.md 内容是否正确，(2) 网关是否在线（hermes --profile <name> gateway status），(3) agent 是否已连接到 Grix。",
-    `target_agent_id=${targetAgentId}, probe_message_id=${probeMessageId}, candidates=${lastCandidateCount}, last_query=${JSON.stringify(lastQuery)}`,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1263,29 +1262,28 @@ function messageMatchesAcceptance(params: {
   return false;
 }
 
-function sendStatusCard(
-  scripts: ScriptPaths,
+async function sendStatusCard(
   flags: Flags,
   status: string,
   step: string,
   summary: string,
-  env: NodeJS.ProcessEnv,
-): void {
+  hermesHome: string,
+): Promise<void> {
   const target = cleanText(flags.statusTarget);
   if (!target) return;
   try {
-    const cardCmd = [
-      flags.node, scripts.cardScript,
-      "egg-status",
-      "--install-id", flags.installId,
-      "--status", status,
-      "--step", step,
-      "--summary", summary,
-    ];
-    const cardResult = runCommand(cardCmd, { env });
-    const cardText = cleanText(cardResult.stdout);
-    if (cardText) {
-      runCommand([flags.node, scripts.sendScript, "--to", target, "--message", cardText], { env });
+    const cardText = buildEggStatusCard({
+      installId: flags.installId,
+      status,
+      step,
+      summary,
+    });
+    const profileName = cleanText(flags.profileName) || flags.agentName;
+    const client = await getWsClient(hermesHome, profileName);
+    try {
+      await client.sendText(target, cardText);
+    } finally {
+      await client.disconnect();
     }
   } catch {
     // best-effort
@@ -1381,7 +1379,7 @@ async function main(): Promise<number> {
   let currentStep: StepName = "detect";
 
   try {
-    sendStatusCard(scripts, flags, "running", "preparing", "开始孵化 agent", env);
+    await sendStatusCard(flags, "running", "preparing", "开始孵化 agent", hermesHome);
     saveState(stateFile, state);
 
     // Backup for existing route
@@ -1402,7 +1400,7 @@ async function main(): Promise<number> {
 
     // Step 3: create
     currentStep = "create";
-    const runtimeCredentials = stepCreate(flags, state, scripts, hermesHome, env);
+    const runtimeCredentials = await stepCreate(flags, state, scripts, hermesHome, env);
     saveState(stateFile, state);
 
     // Step 4: bind
@@ -1429,7 +1427,7 @@ async function main(): Promise<number> {
     state.completed_at = isoNow();
     saveState(stateFile, state);
 
-    sendStatusCard(scripts, flags, "success", "complete", "Agent 孵化完成", env);
+    await sendStatusCard(flags, "success", "complete", "Agent 孵化完成", hermesHome);
 
     const output: Record<string, unknown> = {
       ok: true as const,
@@ -1458,7 +1456,7 @@ async function main(): Promise<number> {
     }
     saveState(stateFile, state);
 
-    sendStatusCard(scripts, flags, "failed", stepName, reason.slice(0, 100), env);
+    await sendStatusCard(flags, "failed", stepName, reason.slice(0, 100), hermesHome);
 
     const errorPayload = {
       ok: false as const,
