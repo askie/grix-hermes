@@ -22,8 +22,6 @@ metadata:
 grix_invoke(action="delete_msg", params={"session_id": "<SESSION_ID>", "msg_id": "<MSG_ID>"})
 ```
 
-双重撤回（先撤回目标消息，再撤回触发命令消息）需要两次调用。
-
 ## 参数
 
 - `session_id`：目标会话 ID
@@ -32,4 +30,3 @@ grix_invoke(action="delete_msg", params={"session_id": "<SESSION_ID>", "msg_id":
 ## 输出
 
 - `{"deleted": true}`
-- 双重撤回时包含触发命令消息的撤回结果
