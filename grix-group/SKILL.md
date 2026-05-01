@@ -1,6 +1,13 @@
 ---
 name: grix-group
 description: 管理 Grix 群聊生命周期和成员关系。提供建群、查群详情、退群、加人、移人、改角色、禁言和解散群能力。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, group, chat, member-management, moderation]
+    related_skills: [grix-query, message-send, message-unsend]
 ---
 
 # Grix Group

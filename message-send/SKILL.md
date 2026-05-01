@@ -1,6 +1,13 @@
 ---
 name: message-send
 description: 在 Hermes 里发送 Grix 消息和卡片。支持当前会话回复、跨会话投递、话题回复、会话卡片、Agent 资料卡和安装状态卡。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, message, send, card, conversation]
+    related_skills: [message-unsend, grix-query]
 ---
 
 # Message Send

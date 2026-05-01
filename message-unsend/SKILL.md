@@ -1,6 +1,13 @@
 ---
 name: message-unsend
 description: 静默撤回 Grix 消息。支持按 session、route session key 或 topic 定位消息，并支持触发命令消息的双重撤回。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, message, unsend, delete, recall]
+    related_skills: [message-send, grix-query]
 ---
 
 # Message Unsend

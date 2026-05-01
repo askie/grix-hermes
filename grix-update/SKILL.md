@@ -1,6 +1,13 @@
 ---
 name: grix-update
 description: 检查并执行 `grix-hermes` 技能包升级。通过 npm 全局包更新后重新安装到 Hermes skills 目录，支持手动维护和 Hermes cron 维护。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, update, npm, upgrade, maintenance]
+    related_skills: [grix-egg]
 ---
 
 # Grix Update

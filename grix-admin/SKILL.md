@@ -1,6 +1,13 @@
 ---
 name: grix-admin
 description: 底层 Grix WS 管理技能。提供远端 Grix API agent 创建、API key 轮换、分类管理、agent 状态查询和分类分配能力。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, admin, agent-management, api-key, category]
+    related_skills: [grix-egg, grix-query, grix-group]
 ---
 
 # Grix Admin

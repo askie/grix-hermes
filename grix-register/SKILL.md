@@ -1,6 +1,13 @@
 ---
 name: grix-register
 description: 底层 HTTP 注册技能。提供邮箱验证码发送、账号注册、登录、access token 获取和首个 Grix API agent 创建能力。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, register, auth, email, account]
+    related_skills: [grix-egg, grix-admin]
 ---
 
 # Grix Register

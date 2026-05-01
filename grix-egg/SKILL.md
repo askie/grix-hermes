@@ -1,6 +1,13 @@
 ---
 name: grix-egg
 description: Hermes agent 孵化技能。一个命令完成远端 Grix agent 创建、本地 profile 绑定、SOUL 写入、gateway 启动和验收；支持空蛋孵化、已有凭证绑定和断点续传。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, egg, bootstrap, agent-creation, profile-binding]
+    related_skills: [grix-admin, grix-register, message-send]
 ---
 
 # Grix Egg

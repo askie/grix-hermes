@@ -1,6 +1,13 @@
 ---
 name: grix-query
 description: 查询 Grix 联系人、会话和消息历史。提供联系人搜索、会话搜索、消息历史读取和消息关键词搜索能力。
+version: 1.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, query, search, contacts, sessions, messages]
+    related_skills: [grix-group, message-send, message-unsend]
 ---
 
 # Grix Query
