@@ -33,8 +33,6 @@ describe("smoke", () => {
   it("compiled shared modules exist", () => {
     const modules = [
       "shared/cli/card-links.js",
-      "shared/cli/config.js",
-      "shared/cli/aibot-client.js",
     ];
     for (const mod of modules) {
       assert.ok(fs.existsSync(path.join(root, mod)), `missing ${mod}`);
