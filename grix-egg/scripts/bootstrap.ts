@@ -57,7 +57,16 @@ function isoNow(): string {
 
 const STEP_NAMES = ["detect", "install", "create", "bind", "soul", "gateway", "accept"] as const;
 type StepName = (typeof STEP_NAMES)[number];
-type CreatePath = "ws" | "http" | "existing" | "";
+type CreatePath = "host" | "http" | "existing" | "";
+
+function setStatePath(state: StateFile, pathUsed: CreatePath): void {
+  state.path = pathUsed;
+}
+
+interface StepCreateResult {
+  credentials: RuntimeCredentials | null;
+  pathUsed: CreatePath;
+}
 
 type StepStatus = "pending" | "done" | "failed" | "skipped";
 
@@ -366,9 +375,9 @@ function suggestForError(step: StepName, errorMessage: string): string {
   switch (step) {
     case "detect":
       if (lower.includes("no") && lower.includes("access-token")) {
-        return "提供 --access-token 进行 HTTP 注册，或在已配置 GRIX_ENDPOINT/GRIX_AGENT_ID/GRIX_API_KEY 的 Hermes agent 中运行。";
+        return "当前实现不应依赖 --access-token 作为主路径。请在具备宿主 Grix 能力的 Hermes 会话中运行，或显式提供已有 agent 凭证走 --route existing。";
       }
-      return "检查运行环境是否有 Grix WS 凭证，或提供 --access-token 走 HTTP 路径。";
+      return "检查当前 Hermes 会话是否具备可用的 Grix 宿主能力，或提供已有 agent 凭证走 --route existing。";
     case "install":
       return "确认 npm 包已安装，或指定正确的 --install-dir。";
     case "create":
@@ -376,7 +385,10 @@ function suggestForError(step: StepName, errorMessage: string): string {
         return "Agent 已存在。使用 --route existing 继续安装，或用不同的 --agent-name 重试。";
       }
       if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("auth")) {
-        return "认证失败。WS 路径：检查 GRIX_API_KEY 是否过期；HTTP 路径：检查 --access-token 是否有效。";
+        return "认证失败。检查当前宿主 Grix 会话是否具备可用权限，或确认已有 agent 凭证是否有效。";
+      }
+      if (lower.includes("unsupported cmd for hermes") || lower.includes("agent_invoke failed")) {
+        return "当前运行时没有暴露可复用的宿主 Grix create 能力，也不应退回要求用户提供 access token。请补宿主侧 create bridge，或改走 --route existing。";
       }
       return "创建远端 agent 失败。检查网络连通性和认证凭证。";
     case "bind":
@@ -463,6 +475,7 @@ function stepDetect(
         "missing existing bind credentials",
       );
     }
+    setStatePath(state, "existing");
     markStepDone(state, "detect", { path: "existing" });
     return;
   }
@@ -476,22 +489,19 @@ function stepDetect(
     profileName: cleanText(flags.profileName) || cleanText(flags.agentName),
   });
   if (useWs) {
+    setStatePath(state, "host");
     markStepDone(state, "detect", {
-      path: "ws",
+      path: "host",
       ws_source: wsDiagnostics.selectedSource,
       ws_source_path: wsDiagnostics.selectedSourcePath,
       ws_profile_name: wsDiagnostics.selectedProfileName || "",
-    });
-  } else if (cleanText(flags.accessToken)) {
-    markStepDone(state, "detect", {
-      path: "http",
-      ws_probe: formatWsCredentialDiagnostics(wsDiagnostics),
+      transport: "host_grix_session",
     });
   } else {
     throw new BootstrapError(
       "detect", 1,
-      "未检测到 Grix WS 凭证，且未提供 --access-token",
-      "提供 --access-token 进行 HTTP 注册，或检查当前 Hermes home / profile 的 Grix 配置是否完整。",
+      "未检测到可复用的 Grix 宿主会话凭证",
+      "请在已连接 Grix 的 Hermes 会话中运行，或显式提供已有 agent 凭证走 --route existing。",
       formatWsCredentialDiagnostics(wsDiagnostics),
     );
   }
@@ -645,18 +655,33 @@ async function stepCreate(
   scripts: ScriptPaths,
   hermesHome: string,
   env: NodeJS.ProcessEnv,
-): Promise<RuntimeCredentials | null> {
-  if (stepIsDone(state, "create")) return credentialsFromFlags(flags);
+): Promise<StepCreateResult> {
+  if (stepIsDone(state, "create")) {
+    return {
+      credentials: credentialsFromFlags(flags),
+      pathUsed: cleanText(state.steps.create?.result?.["path"]) as CreatePath,
+    };
+  }
 
   const detectedPath = state.steps.detect?.result?.["path"];
-  if (detectedPath === "ws") {
-    return stepCreateWs(flags, state, scripts, env);
+  if (detectedPath === "host") {
+    const credentials = await stepCreateWs(flags, state, scripts, env);
+    setStatePath(state, "host");
+    markStepDone(state, "create", {
+      ...(state.steps.create?.result || {}),
+      path: "host",
+      transport: "host_grix_session",
+    });
+    return { credentials, pathUsed: "host" };
   }
   if (detectedPath === "existing") {
-    return stepCreateExisting(flags, state);
+    const credentials = stepCreateExisting(flags, state);
+    setStatePath(state, "existing");
+    return { credentials, pathUsed: "existing" };
   }
   stepCreateHttp(flags, state, scripts, hermesHome, env);
-  return null;
+  setStatePath(state, "http");
+  return { credentials: null, pathUsed: "http" };
 }
 
 async function stepCreateWs(
@@ -690,11 +715,12 @@ async function stepCreateWs(
   }
 
   markStepDone(state, "create", {
-    path: "ws",
+    path: "host",
     agent_id: agentId,
     agent_name: agentName,
     api_endpoint: apiEndpoint,
     api_key: apiKey ? "ak_***" : "",
+    transport: "host_grix_session",
   });
 
   return {
@@ -784,9 +810,9 @@ function stepBind(
   if (stepIsDone(state, "bind")) return;
 
   const createResult = state.steps.create?.result;
-  const detectedPath = state.steps.detect?.result?.["path"];
+  const pathUsed = state.path || (state.steps.create?.result?.["path"] as CreatePath) || (state.steps.detect?.result?.["path"] as CreatePath);
 
-  if (detectedPath === "http") {
+  if (pathUsed === "http") {
     // HTTP path: create_api_agent_and_bind already did binding
     // Extract bind result from create step
     const profileName = cleanText(createResult?.profile_name) || flags.profileName || flags.agentName;
@@ -1393,7 +1419,7 @@ async function main(): Promise<number> {
 
     // Step 3: create
     currentStep = "create";
-    const runtimeCredentials = await stepCreate(flags, state, scripts, hermesHome, env);
+    const { credentials: runtimeCredentials } = await stepCreate(flags, state, scripts, hermesHome, env);
     saveState(stateFile, state);
 
     // Step 4: bind
@@ -1428,6 +1454,7 @@ async function main(): Promise<number> {
       agent_name: state.agent_name,
       profile_name: state.profile_name,
       route: state.route,
+      path: state.path,
       steps: Object.fromEntries(
         STEP_NAMES.map((name) => [name, { status: state.steps[name].status }]),
       ),

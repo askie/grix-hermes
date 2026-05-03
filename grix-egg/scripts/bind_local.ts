@@ -80,13 +80,19 @@ function resolveInstallDir(rawInstallDir: string): string {
 }
 
 function isGrixBundleDir(candidate: string): boolean {
-  const entries = [
+  const requiredEntries = [
     path.join(candidate, "bin", "grix-hermes.js"),
     path.join(candidate, "lib", "manifest.js"),
-    path.join(candidate, "shared", "cli", "grix-hermes.js"),
     path.join(candidate, "grix-admin", "SKILL.md"),
   ];
-  return entries.every((entry) => fs.existsSync(entry));
+  const sharedCliCandidates = [
+    path.join(candidate, "shared", "cli", "skill-wrapper.js"),
+    path.join(candidate, "shared", "cli", "grix-hermes.js"),
+  ];
+  return (
+    requiredEntries.every((entry) => fs.existsSync(entry)) &&
+    sharedCliCandidates.some((entry) => fs.existsSync(entry))
+  );
 }
 
 function validateInstallDir(installDir: string): void {

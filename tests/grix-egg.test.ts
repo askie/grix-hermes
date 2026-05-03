@@ -98,7 +98,11 @@ describe("grix-egg bootstrap", () => {
     });
 
     assert.equal(result.status, 0, result.stderr);
-    const output = JSON.parse(result.stdout) as { steps: Record<string, { status: string }> };
+    const output = JSON.parse(result.stdout) as {
+      path?: string;
+      steps: Record<string, { status: string }>;
+    };
+    assert.equal(output.path, "host");
     assert.ok(output.steps.soul);
     assert.ok(output.steps.accept);
     assert.equal(output.steps.soul.status, "skipped");
@@ -135,6 +139,8 @@ describe("grix-egg bootstrap", () => {
     });
 
     assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as { path?: string };
+    assert.equal(output.path, "host");
     const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-secure.json");
     const stateText = fs.readFileSync(statePath, "utf8");
     assert.equal(modeOf(statePath), 0o600);
@@ -180,7 +186,7 @@ describe("grix-egg bootstrap", () => {
     assert.match(result.stderr, /验收超时/);
   });
 
-  it("passes inherited LLM keys through the HTTP create-and-bind path", () => {
+  it("fails create_new without a reusable host Grix session instead of requiring HTTP access-token fallback", () => {
     const tmp = makeTempDir("grix-egg-http-");
     const hermesHome = path.join(tmp, "hermes");
     const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
@@ -203,14 +209,68 @@ describe("grix-egg bootstrap", () => {
       },
     });
 
-    assert.equal(result.status, 0, result.stderr);
-    const args = JSON.parse(fs.readFileSync(path.join(tmp, "http-create-args.json"), "utf8")) as string[];
-    assert.equal(args[args.indexOf("--inherit-keys") + 1], "global");
-    const stateText = fs.readFileSync(path.join(hermesHome, "tmp", "grix-egg-egg-http.json"), "utf8");
-    assert.ok(!stateText.includes("ak_123_HTTPSECRET"));
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /未检测到可复用的 Grix 宿主会话凭证/);
+    assert.equal(fs.existsSync(path.join(tmp, "http-create-args.json")), false);
   });
 
-  it("uses profile env credentials for WS detection when the Hermes root env is incomplete", () => {
+  it("fails fast when host Grix create capability is unsupported instead of silently falling back to HTTP", () => {
+    const tmp = makeTempDir("grix-egg-ws-fallback-");
+    const hermesHome = path.join(tmp, "hermes");
+    fs.mkdirSync(hermesHome, { recursive: true });
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    fs.writeFileSync(
+      path.join(hermesHome, ".env"),
+      [
+        "GRIX_ENDPOINT=wss://caller",
+        "GRIX_AGENT_ID=caller-agent",
+        "GRIX_API_KEY=***",
+      ].join("\n"),
+      { encoding: "utf8" },
+    );
+
+    fs.writeFileSync(fakeNode, fs.readFileSync(fakeNode, "utf8").replace(
+      'out({ data: { agent_id: "agent-target", agent_name: "safeagent", api_endpoint: "wss://target", api_key: "ak_123_SECRET" } });',
+      'process.stderr.write("grix error: code=4004 msg=unsupported cmd for hermes\\n"); process.exit(4);',
+    ));
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-ws-fallback",
+      "--agent-name", "fallbackagent",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--access-token", "token",
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "",
+        GRIX_AGENT_ID: "",
+        GRIX_API_KEY: "",
+      },
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /unsupported cmd for hermes/);
+    assert.equal(fs.existsSync(path.join(tmp, "http-create-args.json")), false);
+    const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-ws-fallback.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+      path: string;
+      steps: {
+        detect: { result: Record<string, string> };
+        create: { status: string; result: Record<string, string> | null };
+      };
+    };
+    assert.equal(state.path, "host");
+    assert.equal(state.steps.detect.result.path, "host");
+    assert.equal(state.steps.create.status, "failed");
+    assert.equal(state.steps.create.result, null);
+  });
+
+  it("uses profile env credentials for host detection when the Hermes root env is incomplete", () => {
     const tmp = makeTempDir("grix-egg-profile-env-");
     const hermesHome = path.join(tmp, "hermes");
     const profileDir = path.join(hermesHome, "profiles", "safeagent");
@@ -250,13 +310,19 @@ describe("grix-egg bootstrap", () => {
 
     const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-profile-env.json");
     const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+      path: string;
       steps: {
         detect: {
           result: Record<string, string>;
         };
+        create: {
+          result: Record<string, string>;
+        };
       };
     };
-    assert.equal(state.steps.detect.result.path, "ws");
+    assert.equal(state.path, "host");
+    assert.equal(state.steps.detect.result.path, "host");
+    assert.equal(state.steps.create.result.path, "host");
     assert.equal(state.steps.detect.result.ws_source, "Hermes profile .env (safeagent)");
     assert.equal(state.steps.detect.result.ws_profile_name, "safeagent");
   });
@@ -318,6 +384,54 @@ if (sub === "status") {
 });
 
 describe("grix-egg bind_local", () => {
+  it("accepts the new shared skill-wrapper bundle layout", () => {
+    const tmp = makeTempDir("grix-bind-wrapper-");
+    const hermesHome = path.join(tmp, "hermes");
+    const installDir = path.join(tmp, "bundle");
+    for (const filePath of [
+      "bin/grix-hermes.js",
+      "lib/manifest.js",
+      "shared/cli/skill-wrapper.js",
+      "grix-admin/SKILL.md",
+      "grix-egg/SKILL.md",
+    ]) {
+      const absolute = path.join(installDir, filePath);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "");
+    }
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const args = process.argv.slice(2);
+if (args[0] === "profile" && args[1] === "create") {
+  fs.mkdirSync(path.join(process.env.HERMES_HOME, "profiles", args[2]), { recursive: true });
+  process.stdout.write("created");
+} else {
+  process.stderr.write("unexpected hermes args: " + args.join(" "));
+  process.exit(9);
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bind_local.js"),
+      "--agent-name", "wrapperagent",
+      "--agent-id", "agent-wrapper",
+      "--api-endpoint", "wss://wrapper",
+      "--api-key", "ak_123_WRAPPERSECRET",
+      "--profile-name", "wrapperagent",
+      "--install-dir", installDir,
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, HERMES_HOME: hermesHome },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const envPath = path.join(hermesHome, "profiles", "wrapperagent", ".env");
+    assert.equal(fs.existsSync(envPath), true);
+  });
+
   it("writes profile env files privately and masks JSON output", () => {
     const tmp = makeTempDir("grix-bind-");
     const hermesHome = path.join(tmp, "hermes");
