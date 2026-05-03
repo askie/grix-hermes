@@ -193,6 +193,14 @@ node scripts/bootstrap.js \
 
 ### existing：绑定已有凭证
 
+如果用户给的是“已存在 agent 的 id”，但没有提供明文 `api_key`，不要尝试从脱敏输出或旧 checkpoint 里恢复 key。当前推荐路径是：
+
+1. 先用 `grix-key-rotate` 或等价的 admin invoke 对该 `agent_id` 轮换密钥
+2. 取得新的明文 `api_key`
+3. 再继续执行 `--route existing`
+
+也就是说，`existing` 场景里“只有 agent_id”并不等于“已经有可绑定凭证”；通常还需要一次 key rotate 才能拿到新的明文 key。
+
 ```bash
 node scripts/bootstrap.js \
   --install-id <INSTALL_ID> \
@@ -560,6 +568,8 @@ npm pack --dry-run
 - `references/host-create-vs-http-fallback.md`：说明为什么“补一个 access token 就能继续”的旧心智模型会把当前 `create_new` 语义说错
 
 - `references/chinese-agent-name-and-source-vs-bundle.md`：记录中文显示名、ASCII-safe profile 名，以及源码树/安装 bundle 分开判读的真实会话结论
+
+- `../grix-key-rotate/SKILL.md`：已有 agent 只有 `agent_id`、缺少明文 `api_key` 时，先轮换 key 再做 existing bind
 
 - `bind_local.js`：本地 Hermes profile 绑定 helper
 - `patch_profile_config.js`：profile `config.yaml` 技能目录配置 helper

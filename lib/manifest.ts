@@ -21,6 +21,11 @@ export const SKILLS: SkillDefinition[] = [
       "Hermes agent incubation orchestrator for empty-agent bootstrap, binding, gateway, and acceptance.",
   },
   {
+    name: "grix-key-rotate",
+    description:
+      "Rotate an existing Grix agent API key and optionally patch a local env file for rebinding.",
+  },
+  {
     name: "grix-group",
     description:
       "Grix group lifecycle and membership governance over the bundled websocket CLI.",

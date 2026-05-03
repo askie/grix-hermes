@@ -27,6 +27,7 @@
     "shared/**/*.ts",
     "grix-admin/scripts/**/*.ts",
     "grix-egg/scripts/**/*.ts",
+    "grix-key-rotate/scripts/**/*.ts",
     "grix-group/scripts/**/*.ts",
     "grix-query/scripts/**/*.ts",
     "grix-register/scripts/**/*.ts",

@@ -252,7 +252,7 @@ async function listCategories(client: AibotWsClient): Promise<unknown> {
   return client.agentInvoke("agent_category_list", {});
 }
 
-async function rotateAgentKey(
+export async function rotateAgentKey(
   client: AibotWsClient,
   options: CommonActionOptions,
 ): Promise<Record<string, unknown>> {
