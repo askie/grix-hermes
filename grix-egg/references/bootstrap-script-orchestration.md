@@ -58,14 +58,14 @@
 
 ## 真实空蛋孵化补充验证：测试绿 ≠ 运行链可用
 
-后续真实 smoke test 暴露了一个更具体的问题：即使 `npm test` 与 `npm run typecheck` 全绿，`bootstrap.js` 的真实空蛋孵化仍可能失败。
+后续真实 smoke test 暴露了一个更具体的问题：即使 `npm test -- --test-name-pattern=grix-egg` 与 `npm pack --dry-run` 全绿，`bootstrap.js` 的真实空蛋孵化仍可能失败。
 
 ### 复现条件
 
 - 当前 Hermes/Grix 运行时存在 `GRIX_ENDPOINT`、`GRIX_AGENT_ID`、`GRIX_API_KEY`
 - `grix_invoke(action="agent_category_list", params={})` 返回：
   - `unsupported cmd for hermes`
-- 这表示当前会话没有原生 admin invoke 能力，但 bootstrap 的 `detect` 仍会因为看到 WS 凭证而判定 `path=ws`
+- 这表示当前会话没有原生 admin invoke 能力，但 bootstrap 的 `detect` 仍会因为看到宿主会话凭证而判定 `path=host`
 
 ### 真实失败表现
 
@@ -83,7 +83,7 @@ HOME=/Users/gcf node grix-egg/scripts/bootstrap.js \
 
 得到：
 
-- `detect`: done, `path=ws`
+- `detect`: done, `path=host`
 - `install`: done
 - `create`: failed
 - 错误：`Cannot find module '/.../grix-admin/scripts/admin.js'`
@@ -92,7 +92,7 @@ HOME=/Users/gcf node grix-egg/scripts/bootstrap.js \
 
 这说明：
 
-1. `detect=ws` 仅说明“环境里存在 WS 凭证”，不说明当前运行时真的支持 WS admin create
+1. `detect=host` 仅说明“环境里存在可复用宿主会话凭证”，不说明当前运行时真的支持 host/admin create
 2. 当前测试之所以能绿，是因为 `tests/grix-egg.test.ts` 用 fake node stub 掉了：
    - `grix-admin/scripts/admin.js`
    - `grix-group/scripts/group.js`
@@ -111,15 +111,17 @@ HOME=/Users/gcf node grix-egg/scripts/bootstrap.js \
 只满足第一条，不足以宣布空蛋孵化可用。
 
 ```bash
-npm test
+npm test -- --test-name-pattern=grix-egg
+npm pack --dry-run
 git status --short
 ```
 
 验收标准：
 
-1. `npm test` 全绿
-2. 工作区没有误删的 `shared/cli/*.ts`
-3. 若构建依赖恢复出的 shared/cli 源文件，它们必须已被 `git add` 并进入最终提交
+1. `npm test -- --test-name-pattern=grix-egg` 全绿
+2. `npm pack --dry-run` 确认运行时 `.js` 脚本已进入发布产物
+3. 工作区没有误删的 `shared/cli/*.ts`
+4. 若构建依赖恢复出的 shared/cli 源文件，它们必须已被 `git add` 并进入最终提交
 
 ## 跨仓影响面
 

@@ -28,15 +28,21 @@ metadata:
 - `--route create_new`：要求复用宿主 Hermes/Grix live bridge 完成远端创建
 - `--route existing`：跳过创建，直接绑定已有凭证
 
-其中 `create_new` 的设计目标是：**宿主 Grix 能力优先，不再把 `access_token` / HTTP create-and-bind 视为主路径依赖**。
+其中 `create_new` 的设计目标是：**宿主 Grix 能力优先；如果宿主 create 能力不可用，应直接报出能力缺口，而不是自动退回 `access_token` / HTTP create-and-bind。**
 ## 第一步：创建远端 Agent
 
-默认设计里，空蛋孵化的首选路径是：**复用当前 Grix WebSocket 通道完成远端创建**。也就是说：
+默认设计里，空蛋孵化的首选路径是：**复用当前 Grix WebSocket/host live bridge 完成远端创建**。也就是说：
 
-- 如果当前 Hermes→Grix 连接已经具备可用的 WS admin create 能力，**不需要 `access_token`**
-- `access_token` 只是 **HTTP fallback**，仅在当前运行时不能通过 WS admin create 时才需要
+- 如果当前 Hermes→Grix 连接已经具备可用的宿主 create 能力，**不需要 `access_token`**
+- `GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY` 只能证明“检测到可复用宿主会话凭证”
+- 这不等于当前运行时一定暴露了 admin/create 能力
+- 当宿主 create 能力不可用时，当前实现的推荐分流是：
+  1. 改走 `--route existing` 绑定已有凭证
+  2. 排查宿主 Hermes/Grix create bridge 能力
+  3. 如确有独立 HTTP 链路需求，再单独走 `grix-register` / `create_api_agent_and_bind.js`
 
-### 重要澄清：`WS 已连上` 不等于 `当前 bootstrap 一定能成功走 WS create`
+### 重要澄清：`WS 已连上` 不等于 `当前 bootstrap 一定能成功走宿主 create`
+
 
 这里要区分三件事：
 
@@ -54,10 +60,10 @@ metadata:
 
 因此，**不要把“WS 已连接/已有 WS 凭证”直接等同于“空蛋孵化一定不需要别的前置检查”**。真正需要验证的是：
 
-- 当前会话是否具备 admin invoke 能力，或
+- 当前会话是否具备 admin invoke / create 能力，或
 - 当前 bootstrap 所依赖的 WS 脚本链是否完整可用
 
-只有在 **WS create 路径不可用** 时，才需要退回到 `access_token` 的 HTTP fallback。
+如果宿主 create 能力不可用，当前实现应直接失败并报出能力缺口；不要把 `create_new` 描述成会自动切到 `access_token` 的 HTTP fallback。
 
 ### 前置检查：确认当前会话具备 Grix admin invoke 能力
 
@@ -78,17 +84,17 @@ grix_invoke(action="agent_category_list", params={})
 
 此时不要把 `access_token` 当成默认前提；应先明确说明：
 
-- 首选方案本来仍然应该是复用 WS 通道
+- 首选方案本来仍然应该是复用宿主/WS 通道
 - 只是当前运行时/实现没有把可用的 admin create 能力暴露出来，或者 bootstrap 的 WS 脚本链不完整
 
 在这个前提下，再改走以下其一：
 
-1. **HTTP fallback**：改用 `grix-register` 路径，需要 `access_token`
-2. **已有凭证绑定**：让上游提供 `agent_id` / `api_endpoint` / `api_key`，然后走 `--route existing`
-3. **环境排查**：检查当前 Hermes gateway / Grix adapter 的 capability 协商是否真的暴露了 admin invoke
-4. **脚本链排查**：确认 bootstrap 依赖的 `scripts/*.js` 在源码树/安装包里真实存在
+1. **已有凭证绑定**：让上游提供 `agent_id` / `api_endpoint` / `api_key`，然后走 `--route existing`
+2. **环境排查**：检查当前 Hermes gateway / Grix adapter 的 capability 协商是否真的暴露了 admin invoke / create
+3. **脚本链排查**：确认 bootstrap 依赖的 `scripts/*.js` 在源码树/安装包里真实存在
+4. **独立 HTTP 链路**：如果业务上确实还需要旧注册/创建链路，再显式使用 `grix-register` 或 `create_api_agent_and_bind.js`
 
-### WS admin create 路径
+### 宿主 create 路径
 
 当前 bootstrap 的实现是：**通过外部脚本链执行 WS 管理动作，而不是在 bootstrap 内直接 new WS client 做 create**。
 
@@ -115,40 +121,36 @@ grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main"
 grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main": true, "category_id": "<CATEGORY_ID>"})
 ```
 
-### 已实现的自动回退行为（新）
+### 当前实现不会自动回退到 HTTP create-and-bind
 
-当 `detect` 判定当前路径是 `ws`，但真实执行 `create_grix` 时返回类似：
+当 `detect` 判定当前路径是 `host`，但真实执行 `create_grix` 时返回类似：
 
 - `grix error: code=4004 msg=unsupported cmd for hermes`
 - `agent_invoke failed: ... unsupported cmd for hermes`
 
-且命令行同时提供了 `--access-token`，当前 `bootstrap.js` 应自动执行：
+当前 `bootstrap.js` 的正确行为是：
 
-1. 将当前创建路径从 `ws` 回退到 `http`
-2. 记录 checkpoint：
-   - `steps.detect.result.path = "http"`
-   - `steps.detect.result.ws_admin_fallback = "unsupported cmd for hermes"`
-3. 继续走 HTTP create-and-bind
+1. 保持 `steps.detect.result.path = "host"`
+2. 保持顶层 `state.path = "host"`
+3. 将 `steps.create.status` 标记为 `failed`
+4. 不自动调用 HTTP create-and-bind，即使命令行同时提供了 `--access-token`
 
 这意味着：
 
 - `WS 已连上` 仍然是首选探测结果
-- 但如果宿主运行时不支持 WS admin create，**不需要人工重跑另一条命令**；只要给了 `--access-token`，bootstrap 应自行切到 HTTP
-- 如果没有 `--access-token`，才应把失败报告给用户，并建议补 token 或改走 `--route existing`
+- 但如果宿主运行时不支持 create/admin bridge，当前实现会直接把失败暴露给用户
+- 后续建议应是：补宿主侧 create bridge，或改走 `--route existing`
+- 不要把“补一个 `--access-token` 再重跑”描述成当前实现的默认恢复路径
 
 ### 真实复验时的注意点（新）
 
-当前环境里如果要做“真实 HTTP fallback 链路 smoke test”，不要假设 `~/.hermes/.env` 一定有 `GRIX_ACCESS_TOKEN`。先检查；如果缺失，则：
+如果当前环境还保留旧的 `grix-register` / `create_api_agent_and_bind.js` 独立链路，不要把它与 `create_new` 的主路径语义混为一谈。汇报时要明确区分：
 
-- 代码层面的 fallback 可通过测试验证
-- 但真实线上复验仍会卡在“没有可用 HTTP fallback 凭证”这一层
+1. **当前 `create_new` 是否依赖宿主 create bridge**
+2. **当前仓库是否另外保留了独立 HTTP 创建工具**
+3. **当前环境是否真的具备跑通独立 HTTP 链路所需的 `GRIX_ACCESS_TOKEN`**
 
-因此汇报时要明确区分：
-
-1. **代码是否已支持自动回退**
-2. **当前环境是否真的具备跑通 HTTP fallback 的 access token**
-
-不要把“环境里没有 token”误报成“fallback 代码仍未实现”。
+不要把“环境里没有 token”误报成“`create_new` 仍未修好”；二者是不同层级的问题。
 
 ### bind_local 安装目录校验兼容性（新）
 
@@ -175,9 +177,9 @@ grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main"
 
 拿到远端凭证后，调用本地脚本完成 profile 创建、凭证写入和 gateway 启动。
 
-### create_new：让 bootstrap 自行判路创建
+### create_new：让 bootstrap 按当前语义创建
 
-优先 WS，缺 WS 时可显式提供 `--access-token` 走 HTTP：
+`create_new` 现在的语义是：优先复用宿主 Grix live bridge；如果宿主 create 能力不可用，则直接失败并暴露能力缺口，而不是自动改走 HTTP fallback。
 
 ```bash
 node scripts/bootstrap.js \
@@ -187,16 +189,7 @@ node scripts/bootstrap.js \
   --json
 ```
 
-HTTP fallback：
-
-```bash
-node scripts/bootstrap.js \
-  --install-id <INSTALL_ID> \
-  --agent-name <AGENT_NAME> \
-  --route create_new \
-  --access-token <ACCESS_TOKEN> \
-  --json
-```
+如果你已经有远端凭证，不要给 `create_new` 补 `--access-token` 期待自动切路；请直接改用 `--route existing`。
 
 ### existing：绑定已有凭证
 
@@ -311,7 +304,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 |------|------|
 | `--install-id` | 安装实例 ID。可生成 `egg-` 加 8 位随机 hex |
 | `--agent-name` | Agent 名称；默认也作为 profile 名 |
-| `--access-token` | 当未检测到 WS 凭证时，走 HTTP create-and-bind |
+| `--access-token` | 仅供独立 HTTP 工具链使用；`create_new` 不应把它当成自动 fallback 开关 |
 | `--status-target` | 接收安装状态卡片的会话 |
 | `--probe-message` | 验收探针消息；提供后启用验收 |
 | `--expected-substring` | 目标 agent 回复中必须包含的子串 |
@@ -376,7 +369,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
    grix_invoke(action="agent_category_list", params={})
    ```
    - 如果返回 `unsupported cmd for hermes`，说明当前会话不支持原生 admin invoke。
-   - 此时即使 `GRIX_ENDPOINT` / `GRIX_AGENT_ID` / `GRIX_API_KEY` 存在，bootstrap 的 `detect` 仍可能判成 `path=ws`；这只能说明“有 WS 凭证”，**不能证明** WS create 路径在当前运行时真的可用。
+   - 此时即使 `GRIX_ENDPOINT` / `GRIX_AGENT_ID` / `GRIX_API_KEY` 存在，bootstrap 的 `detect` 仍可能判成 `path=host`；这只能说明“有可复用宿主会话凭证”，**不能证明** host create 路径在当前运行时真的可用。
 
 2. **脚本链预检：确认 bootstrap 依赖的外部脚本真的存在**
    - 真实 `create_new` / `accept` 链至少会用到：
@@ -395,7 +388,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 
 已验证的真实故障模式：
 
-- `bootstrap.js` 的 `detect` 步骤判定 `path=ws`
+- `bootstrap.js` 的 `detect` 步骤判定 `path=host`
 - `install` 步骤成功
 - `create` 步骤失败，报错类似：
   - `Cannot find module '/.../grix-admin/scripts/admin.js'`
@@ -435,7 +428,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 则应明确判定为：
 
 - 本地源码/安装包脚本链问题已经修复
-- 当前剩余阻塞点是 **宿主 Hermes/Grix 运行时并未暴露 WS admin create 能力**
+- 当前剩余阻塞点是 **宿主 Hermes/Grix 运行时并未暴露 host/admin create 能力**
 - 这已经不是“源码模式 vs npm 模式”的差异，而是运行时 capability 边界
 
 此时应把后续动作转向：
@@ -465,13 +458,13 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 ```bash
 git status --short
 git log --oneline -5
-npm test
-npm run typecheck
+npm test -- --test-name-pattern=grix-egg
+npm pack --dry-run
 ```
 
 判读要点：
 
-- 如果 `npm test` 和 `npm run typecheck` 已经全绿，优先判断为“问题已被最近提交修复”，不要重复按旧报错方向继续改。
+- 如果 `npm test -- --test-name-pattern=grix-egg` 和 `npm pack --dry-run` 已经全绿，优先判断为“当前源码树与发布产物已对齐”，不要重复按旧报错方向继续改。
 - 对这类仓库，`grix-egg/scripts/bootstrap.ts` 的问题经常和 `shared/cli/*.ts` 源文件是否完整一起出现；若最近提交已经恢复这些文件，就先把“当前是否仍失败”查实。
 - 当前已验证的一类修复信号是：最近提交同时恢复/修改了
   - `shared/cli/actions.ts`
@@ -556,13 +549,17 @@ npm run typecheck
 
 ## 相关参考
 
-- `references/host-live-bridge-state-alignment.md`：记录“hermes-agent 宿主 live bridge 已存在，但 grix-egg 仍需统一 state path 与测试 contract”的审查结论
+- `references/host-live-bridge-state-alignment.md`：记录这轮 host-path / 测试 contract 收口前的审查结论，以及后来如何统一到当前实现
 
 ## 相关参考
 
-- `references/ws-fallback-and-bundle-compat.md`：记录 WS create 遇到 `unsupported cmd for hermes` 时的自动 HTTP fallback、真实验真对 `GRIX_ACCESS_TOKEN` 的依赖，以及 bind_local 对新旧 shared CLI bundle 布局的兼容要求
+- `references/ws-fallback-and-bundle-compat.md`：记录旧讨论里关于 WS create / fallback / bundle 兼容性的历史背景；若与当前 `bootstrap.ts` / tests 不一致，以当前 host-first、失败直出能力缺口的实现与测试为准
 
 - `references/bootstrap-script-orchestration.md`：这次关于脚本编排回退、shared/cli 文件恢复、以及跨仓库影响面的记录
+
+- `references/host-create-vs-http-fallback.md`：说明为什么“补一个 access token 就能继续”的旧心智模型会把当前 `create_new` 语义说错
+
+- `references/chinese-agent-name-and-source-vs-bundle.md`：记录中文显示名、ASCII-safe profile 名，以及源码树/安装 bundle 分开判读的真实会话结论
 
 - `bind_local.js`：本地 Hermes profile 绑定 helper
 - `patch_profile_config.js`：profile `config.yaml` 技能目录配置 helper

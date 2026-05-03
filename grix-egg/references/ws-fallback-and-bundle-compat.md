@@ -1,4 +1,4 @@
-# WS create fallback and bundle-layout compatibility
+# WS create capability failures and bundle-layout compatibility
 
 ## Session takeaways
 
@@ -8,22 +8,23 @@
 
 2. The next real blocker was runtime capability:
    - `grix error: code=4004 msg=unsupported cmd for hermes`
-   - meaning: current Hermes/Grix host runtime did not expose WS admin create
+   - meaning: current Hermes/Grix host runtime did not expose host/admin create capability
 
-3. Correct product behavior for `bootstrap.js`:
-   - if detect says `ws`
-   - and WS create fails with `unsupported cmd for hermes`
-   - and caller supplied `--access-token`
-   - then bootstrap should automatically fall back to HTTP create-and-bind
-   - checkpoint should record:
-     - `steps.detect.result.path = http`
-     - `steps.detect.result.ws_admin_fallback = unsupported cmd for hermes`
+3. Correct product behavior for `bootstrap.js` now:
+   - if detect says `host`
+   - and host create fails with `unsupported cmd for hermes`
+   - bootstrap should keep host-path semantics and fail fast
+   - checkpoint/state should keep:
+     - `steps.detect.result.path = host`
+     - top-level `state.path = host`
+     - `steps.create.status = failed`
+   - it should NOT automatically fall back to HTTP create-and-bind just because `--access-token` was supplied
 
 4. Real-environment verification caveat:
-   - code-level fallback can be green in tests
-   - but live fallback still requires a real `GRIX_ACCESS_TOKEN`
-   - in this session, `~/.hermes/.env` did not contain `GRIX_ACCESS_TOKEN`
-   - so lack of token must be reported as an environment limitation, not as missing fallback code
+   - independent HTTP tooling may still exist in the repo
+   - but that is separate from `create_new` semantics
+   - if the environment lacks `GRIX_ACCESS_TOKEN`, report that only as a limitation for the independent HTTP path
+   - do not misreport it as the reason `create_new` failed
 
 5. bind_local bundle validation learned compatibility rule:
    - new layout may ship `shared/cli/skill-wrapper.js`
@@ -38,12 +39,12 @@
 After making bootstrap or bundle-layout fixes, verify in this order:
 
 1. `npm run build`
-2. `npm test`
-3. real or semi-real smoke run
+2. `npm test -- --test-name-pattern=grix-egg`
+3. `npm pack --dry-run`
 4. if smoke fails, separate:
    - source/bundle missing-file failures
    - host capability failures
-   - missing HTTP fallback credentials
+   - independent HTTP credential limitations
 
 ## Error classification snippets
 
@@ -52,7 +53,7 @@ After making bootstrap or bundle-layout fixes, verify in this order:
 - `grix error: code=4004 msg=unsupported cmd for hermes`
 - `agent_invoke failed: ... unsupported cmd for hermes`
 
-Interpret as: WS channel exists, but host runtime does not support WS admin create.
+Interpret as: host session credentials exist, but the runtime does not expose reusable host/admin create capability.
 
 ### Bundle-layout validation false negative
 
