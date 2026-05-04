@@ -1,7 +1,7 @@
 ---
 name: grix-register
-description: 底层 HTTP 注册技能。提供邮箱验证码发送、账号注册、登录、access token 获取和首个 Grix API agent 创建能力。
-version: 1.0.0
+description: 程序优先的 Grix HTTP 注册技能。AI 只负责把自然语言整理成标准子命令和参数，再调用脚本完成认证、创建和交接。
+version: 2.0.0
 author: askie
 license: MIT
 metadata:
@@ -12,124 +12,130 @@ metadata:
 
 # Grix Register
 
-这个技能提供 Grix HTTP 注册链路。
-
-## 能力
-
-1. 发送邮箱验证码
-2. 注册 Grix 账号
-3. 邮箱或账号密码登录
-4. 创建 `provider_type=3` 的 Grix API agent
-5. 输出可交给 `grix-egg` 使用的 handoff JSON
-
-## 执行方式
+`grix-register` 有两个程序入口：
 
 ```bash
-node scripts/grix_auth.js <subcommand> ...
+node scripts/grix_auth.js <subcommand> ... --json
+node scripts/create_api_agent_and_bind.js ... --json
 ```
 
-## 发送邮箱验证码
+主入口是 `grix_auth.js`。只有在用户明确要走“HTTP 创建并立刻绑定本地 profile”时，才用 `create_api_agent_and_bind.js`。
+
+## 1. 主线能力
+
+`grix_auth.js` 负责 4 件事：
+
+- `send-email-code`
+- `register`
+- `login`
+- `create-api-agent`
+
+`create_api_agent_and_bind.js` 负责 1 件事：
+
+- 走 HTTP 创建远端 agent
+- 然后交给 `grix-egg` 的 `bind_local` helper 完成本地绑定
+
+## 2. 标准调用
+
+### 2.1 发送邮箱验证码
 
 ```bash
 node scripts/grix_auth.js send-email-code \
-  --email <EMAIL> \
+  --email "<EMAIL>" \
   --scene register \
-  --base-url https://grix.dhf.pub
+  --base-url "https://grix.dhf.pub"
 ```
 
-## 注册
+### 2.2 注册
 
 ```bash
 node scripts/grix_auth.js register \
-  --email <EMAIL> \
-  --password <PASSWORD> \
-  --email-code <CODE> \
-  --base-url https://grix.dhf.pub
+  --email "<EMAIL>" \
+  --password "<PASSWORD>" \
+  --email-code "<CODE>" \
+  --base-url "https://grix.dhf.pub"
 ```
 
-## 登录
+### 2.3 登录
 
 ```bash
-node scripts/grix_auth.js login --email <EMAIL> --password <PASSWORD>
-node scripts/grix_auth.js login --account <ACCOUNT> --password <PASSWORD>
+node scripts/grix_auth.js login --email "<EMAIL>" --password "<PASSWORD>"
+node scripts/grix_auth.js login --account "<ACCOUNT>" --password "<PASSWORD>"
 ```
 
-## HTTP fallback 的推荐调用顺序（新）
-
-当 `grix-egg create_new` 需要改走 HTTP fallback 时，推荐顺序不是假设环境里已经存在 `GRIX_ACCESS_TOKEN`，而是：
-
-1. 向用户获取邮箱/账号与密码
-2. 如用户尚未注册，先 `send-email-code` → `register`
-3. 执行 `login`，现场拿到 access token
-4. 再调用 `create-api-agent` 或 `create_api_agent_and_bind.js`
-
-也就是说，`--access-token` 仍是底层脚本参数，但上层工作流应优先通过登录实时获取，而不是把预置环境变量当成默认前提。
-
-## 创建 API Agent
+### 2.4 创建远端 API agent
 
 ```bash
 node scripts/grix_auth.js create-api-agent \
-  --access-token <TOKEN> \
-  --agent-name <NAME> \
+  --access-token "<TOKEN>" \
+  --agent-name "<AGENT_NAME>" \
   --is-main true|false \
-  --avatar-url <AVATAR_URL> \
-  --base-url https://grix.dhf.pub
+  --avatar-url "<AVATAR_URL>" \
+  --base-url "https://grix.dhf.pub"
 ```
 
-参数：
+补充参数：
 
-- `--access-token`：登录或注册后得到的 access token。推荐现场通过 `login` 或 `register` 子命令获取，而不是要求用户预先设置 `GRIX_ACCESS_TOKEN` 环境变量。
-- `--agent-name`：远端 agent 名称
-- `--is-main`：是否主 agent，默认 `true`
-- `--avatar-url`：agent 头像 URL
-- `--base-url`：Grix 服务地址，默认 `https://grix.dhf.pub`
-- `--no-reuse-existing-agent`：创建新的同名 `provider_type=3` agent
-- `--no-rotate-key-on-reuse`：复用已有 agent 时保留当前 key
+- `--no-reuse-existing-agent`
+- `--no-rotate-key-on-reuse`
 
-默认复用行为：脚本会查找同名 `provider_type=3` agent；找到后复用并轮换 API key；其余情况创建新 agent。
+默认语义：
 
-## grix-egg HTTP helper
+- 同名 `provider_type=3` agent 已存在时，脚本优先复用
+- 复用时默认轮换 key
+- 否则创建新 agent
 
-`create_api_agent_and_bind.js` 提供 HTTP 创建并交给 `grix-egg` 绑定的辅助链路：
+### 2.5 HTTP 创建并直接绑定本地
 
 ```bash
 node scripts/create_api_agent_and_bind.js \
-  --access-token <TOKEN> \
-  --agent-name <NAME> \
-  --profile-name <PROFILE_NAME> \
+  --access-token "<TOKEN>" \
+  --agent-name "<AGENT_NAME>" \
+  --profile-name "<PROFILE_NAME>" \
   --json
 ```
 
-## 返回结构
+## 3. 推荐工作流
 
-`create-api-agent` 成功时返回：
+如果上层只是要“拿到可用的 access token”，主线是：
 
-```json
-{
-  "ok": true,
-  "action": "create-api-agent",
-  "agent_id": "...",
-  "agent_name": "...",
-  "is_main": true,
-  "api_endpoint": "wss://...",
-  "api_key": "...",
-  "session_id": "...",
-  "handoff": {
-    "target_tool": "grix_egg",
-    "task": "grix-egg route=existing\nprofile_name=...\n...",
-    "bind_local": {
-      "profile_name": "...",
-      "agent_name": "...",
-      "agent_id": "...",
-      "api_endpoint": "...",
-      "api_key": "...",
-      "is_main": true
-    }
-  }
-}
-```
+1. 必要时 `send-email-code`
+2. 必要时 `register`
+3. `login`
 
-## 参考
+如果上层要“创建一个远端 agent”，主线是：
 
-- [Hermes Grix Runtime](../shared/references/hermes-grix-config.md)
-- [Handoff To grix-egg](references/handoff-contract.md)
+1. 先 `login`
+2. 再 `create-api-agent`
+
+如果上层要“创建后立刻接到本地 Hermes”，有两条路：
+
+- 推荐：
+  - `create-api-agent`
+  - 把结果里的 `handoff.bind_local` 交给 `grix-egg --route existing`
+- 直连 helper：
+  - `create_api_agent_and_bind.js`
+
+不要把“用户预先提供 access token”当成默认前提。正常流程里，token 应该由 `login` 或 `register` 现场产出。
+
+## 4. 输出与边界
+
+- `login` / `register` 成功后返回 `access_token`
+- `create-api-agent` 成功后返回：
+  - `agent_id`
+  - `agent_name`
+  - `api_endpoint`
+  - `api_key`
+  - `handoff.bind_local`
+
+边界：
+
+- 这个技能负责 HTTP 认证与远端创建
+- 本地 profile 绑定的统一主线仍然是 `grix-egg`
+- 除非用户明确要一次走完 HTTP 创建和本地绑定，否则不要把 `create_api_agent_and_bind.js` 当默认入口
+
+## 5. AI 只参与什么
+
+- 把“注册”“登录”“创建 agent”这种自然语言整理成标准子命令
+- 只在程序明确缺少邮箱、密码、验证码、token 时再问用户
+- 读 JSON 结果后告诉用户是拿到了 token，还是已经创建出了远端 agent

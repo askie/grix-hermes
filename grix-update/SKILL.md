@@ -1,7 +1,7 @@
 ---
 name: grix-update
-description: 检查并执行 `grix-hermes` 技能包升级。通过 npm 全局包更新后重新安装到 Hermes skills 目录，支持手动维护和 Hermes cron 维护。
-version: 1.0.0
+description: 程序优先的 grix-hermes 更新技能。AI 只负责整理更新参数、读取结果和在必要时提示环境问题。
+version: 2.0.0
 author: askie
 license: MIT
 metadata:
@@ -12,83 +12,79 @@ metadata:
 
 # Grix Update
 
-这个技能提供 `grix-hermes` 技能包升级能力。
+`grix-update` 的唯一入口是：
 
-## 执行方式
+```bash
+node scripts/grix_update.js ... --json
+```
+
+这个技能只负责把全局 npm 包更新后重新安装到目标 Hermes skills 目录，不负责手工发布 npm 包。
+
+## 1. 程序主线
+
+脚本固定按这 3 步执行：
+
+1. `npm update -g @dhf-hermes/grix`
+2. `npm root -g`
+3. `node <global_dir>/bin/grix-hermes.js install --dest <INSTALL_DIR> --force`
+
+## 2. 标准入参
+
+最小调用：
+
+```bash
+node scripts/grix_update.js --json
+```
+
+常见调用：
 
 ```bash
 node scripts/grix_update.js \
-  --install-dir ~/.hermes/skills/grix-hermes \
+  --install-dir "~/.hermes/skills/grix-hermes" \
   --npm npm \
   --node node \
   --dry-run \
   --json
 ```
 
-## 参数
+参数：
 
-- `--install-dir`：目标安装目录，默认 `~/.hermes/skills/grix-hermes`
-- `--npm`：npm 可执行文件路径，默认 `npm`
-- `--node`：node 可执行文件路径，默认 `node`
-- `--dry-run`：输出升级计划
-- `--json`：JSON 输出
+- `--install-dir`
+- `--npm`
+- `--node`
+- `--dry-run`
 
-## 执行顺序
-
-1. `npm update -g @dhf-hermes/grix`
-2. `npm root -g`
-3. `node <全局包>/bin/grix-hermes.js install --dest <INSTALL_DIR> --force`
-
-## 输出
+## 3. 输出与边界
 
 - `version_before`
 - `version_after`
-- 安装目录
-- 命令执行日志
+- `install_dir`
+- `global_dir`
 
-## 自动 Cron
+`--dry-run` 时只输出计划，不真正更新。
 
-`grix-hermes install` 会通过 `hermes cron add` 创建每日更新任务：
+这个技能只处理“已发布版本的安装与更新”：
 
-- 名称：`grix-hermes-daily-update`
-- 时间：每天 06:00
-- 幂等检查：先查 `hermes cron list`
-- `--skip-cron`：跳过 cron 创建
-- `--hermes <path>`：指定 hermes 可执行文件路径
+- 如果用户要发新 npm 版本，不属于这个技能的主线
+- 如果用户要管理 cron，也不需要在这里手工拼复杂逻辑
 
-推荐 cron prompt：
+## 4. Cron 口径
 
-```text
-Use the grix-update skill with {"install_dir":"~/.hermes/skills/grix-hermes"}
-```
+- `grix-hermes install` 已经会尝试创建每日更新 cron
+- 只有当用户明确要单独做定时维护时，才让上层调这个技能
+- 上层 cron 只需要调用这个技能，不要在 cron 里重复实现更新步骤
 
-## 发布 / npm 认证注意事项（新）
+## 5. 环境注意事项
 
-如果是在 Hermes profile 内执行 `npm whoami`、`npm login`、`publish_npm.sh` 或 `publish.sh --publish`，先确认当前进程看到的 `HOME` 不是被 profile 重定向后的隔离目录。否则即使真实机器已经登录过 npm，这个会话里仍可能表现为：
+如果在 Hermes profile 内执行和 npm 认证相关的动作，`HOME` 可能被 profile 重定向，导致当前会话读不到真实 `~/.npmrc`。常见表现是：
 
-- `npm whoami` 报 `ENEEDAUTH`
-- `publish_npm.sh --publish` 报 `npm auth missing`
-- 当前 profile 下看不到 `~/.npmrc`
+- `npm whoami` 报未登录
+- 发布脚本只在 auth 阶段失败
 
-对这个用户当前机器，稳妥做法是显式切回真实 HOME 再做 npm 认证/发布：
+这类情况优先判断为环境问题，而不是更新脚本问题。
 
-```bash
-HOME=/Users/gcf npm whoami
-HOME=/Users/gcf npm login
-HOME=/Users/gcf bash ./scripts/publish_npm.sh --publish --version <x.y.z> --confirm-package @dhf-hermes/grix@<x.y.z> --confirm-tarball dhf-hermes-grix-<x.y.z>.tgz
-```
+## 6. AI 只参与什么
 
-如果 `--preview` 已通过，而 `--publish` 只失败在 npm auth，这通常说明：
-
-1. 代码/测试/打包流程本身没问题
-2. 阻塞点只是当前运行环境读不到真实 `~/.npmrc`
-3. 应先修正 `HOME` 或补 npm token，而不是继续改发布脚本
-
-补充参考：
-- `references/npm-publish-auth-under-hermes-home.md`：Hermes profile HOME 重定向导致 npm publish 读不到真实凭证时的判读与恢复路径
-
-## 参考
-
-- [Cron Setup](references/cron-setup.md)
-- [NPM Publish Auth under Hermes HOME](references/npm-publish-auth-under-hermes-home.md)
-
+- 把“更新技能包”“先 dry-run 看计划”整理成标准参数
+- 读取结果后告诉用户版本有没有变化
+- 只有程序失败且明显是环境问题时，再提示用户检查 npm、node 或 HOME

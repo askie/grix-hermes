@@ -1,7 +1,0 @@
-interface:
-  display_name: "Grix Register"
-  short_description: "HTTP registration, email verification, login, token, and API-agent creation."
-  default_prompt: "Use $grix-register for Grix HTTP registration, email verification, login, access-token acquisition, API agent creation, and handoff JSON generation."
-
-policy:
-  allow_implicit_invocation: true

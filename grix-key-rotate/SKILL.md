@@ -1,50 +1,75 @@
 ---
 name: grix-key-rotate
-description: 轮换 Grix agent 的 API 密钥。支持 --env-file 参数直接替换 .env 文件中的密钥，不输出明文。具有 agent.api.create 权限的 agent 可独立调用此技能轮换同 owner 下任意 agent 的密钥。
+description: 程序优先的 Grix API key 轮换技能。AI 只负责整理参数并读取结果，不直接处理明文密钥。
+version: 2.0.0
+author: askie
+license: MIT
+metadata:
+  hermes:
+    tags: [grix, key-rotate, api-key, security]
+    related_skills: [grix-admin, grix-egg]
 ---
 
 # Grix Key Rotate
 
-轮换 Grix agent 的 API 密钥并更新本地配置。
-
-## 用途
-
-- 定期轮换 agent 的 API 密钥（安全最佳实践）
-- 密钥泄露后立即更换
-- 任何具有 `agent.api.create` 权限的 agent 可以独立调用此技能，轮换同一 owner 下任意 agent 的密钥
-
-## 用法
-
-### 基本用法（轮换并替换 .env 文件中的密钥）
+`grix-key-rotate` 的唯一入口是：
 
 ```bash
-node scripts/grix-key-rotate.js --agent-id <AGENT_ID> --env-file ~/.hermes/profiles/<PROFILE>/config.env
+node scripts/grix-key-rotate.js ... --json
 ```
 
-必填参数：
-- `--agent-id`：要轮换密钥的目标 agent ID
+这个技能只做一件事：轮换目标 agent 的 API key。需要把新 key 写回本地配置时，由程序直接改 `.env`，不要让 AI 暴露明文。
 
-可选参数：
-- `--env-file`：目标 `.env` 文件的绝对路径。如果提供，新密钥会直接替换文件中的 `GRIX_API_KEY` 值，其他参数不变
+## 1. 标准入参
 
-### 输出
+最小调用：
 
-传了 `--env-file` 时：
-- `rotatedAgent`：轮换后的 agent 信息（api_key 已脱敏为 `***`）
-- `envFile`：已更新的 .env 文件路径
-- `tempKeyFile`：临时密钥备份文件路径（位于 `~/.hermes/tmp/grix-key-<timestamp>.tmp`）
+```bash
+node scripts/grix-key-rotate.js \
+  --agent-id "<AGENT_ID>" \
+  --json
+```
 
-不传 `--env-file` 时：
-- `rotatedAgent`：轮换后的 agent 信息（api_key 已脱敏为 `***`）
+带本地配置回写：
 
-### 注意事项
+```bash
+node scripts/grix-key-rotate.js \
+  --agent-id "<AGENT_ID>" \
+  --env-file "~/.hermes/profiles/<PROFILE>/.env" \
+  --json
+```
 
-1. **不会输出明文密钥到 stdout**——密钥只出现在 `.env` 文件和临时备份文件中
-2. `--env-file` 只替换 `GRIX_API_KEY` 这一行，`GRIX_ENDPOINT` 和 `GRIX_AGENT_ID` 保持不变
-3. 临时密钥文件位于 `~/.hermes/tmp/`，调用方应及时读取并清理
-4. 轮换后旧密钥立即失效，使用该密钥的 agent 需要重启才能使用新密钥
-5. 调用方 agent 自身需要有 `agent.api.create` 权限
+规则：
 
-## 参考
+- `--agent-id` 必填
+- `--env-file` 可选；传了就只替换 `GRIX_API_KEY`
 
-- [Hermes Grix Runtime](../shared/references/hermes-grix-config.md)
+## 2. 程序输出
+
+- `rotatedAgent`
+  - `api_key` 在 stdout 中会被脱敏
+- `envFile`
+  - 只有传 `--env-file` 时才有
+- `tempKeyFile`
+  - 只有传 `--env-file` 时才有
+  - 位于 `~/.hermes/tmp/`
+
+## 3. 使用边界
+
+- 不传 `--env-file` 时，程序只负责远端轮换
+- 传了 `--env-file` 时，程序会：
+  - 轮换远端 key
+  - 更新本地 `.env`
+  - 生成临时密钥备份文件
+
+注意：
+
+- 旧 key 会立即失效
+- 使用该 key 的 agent 通常需要重启后才会拿到新配置
+- AI 不应在聊天输出里传播明文 key
+
+## 4. AI 只参与什么
+
+- 从自然语言里确定目标 `agent-id` 和是否需要改本地 `.env`
+- 读取结果后告诉用户轮换是否成功、是否已回写本地配置
+- 如果用户后续要绑定到新 profile，再交给 `grix-egg`

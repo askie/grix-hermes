@@ -1,7 +1,7 @@
 ---
 name: grix-group
-description: 管理 Grix 群聊生命周期和成员关系。提供建群、查群详情、退群、加人、移人、改角色、禁言和解散群能力。
-version: 1.0.0
+description: 程序优先的 Grix 群治理技能。AI 只负责把自然语言整理成标准参数，再调用群管理脚本执行。
+version: 2.0.0
 author: askie
 license: MIT
 metadata:
@@ -12,48 +12,80 @@ metadata:
 
 # Grix Group
 
-这个技能提供 Grix 群治理能力。
+`grix-group` 的唯一入口是：
 
-## 执行方式
-
-使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用：
-
-```
-grix_invoke(action="group_create", params={"name": "版本验收群", "member_ids": ["1001", "2001"], "member_types": [1, 2]})
-grix_invoke(action="group_detail_read", params={"session_id": "<SESSION_ID>"})
-grix_invoke(action="group_member_add", params={"session_id": "<SESSION_ID>", "member_ids": ["1002", "1003"]})
+```bash
+node scripts/group.js ... --json
 ```
 
-## 群生命周期
+一次调用只做一个群动作，不把建群、发消息、查历史混在一起。
 
-- `group_create`：建群（`name` 必填，`member_ids` / `member_types` 可选）
-- `group_detail_read`：查群详情（`session_id` 必填）
-- `group_leave_self`：退群（`session_id` 必填）
-- `group_dissolve`：解散群（`session_id` 必填）
+## 1. 标准动作
 
-## 成员管理
+- `--action create`
+- `--action detail`
+- `--action leave`
+- `--action add_members`
+- `--action remove_members`
+- `--action update_member_role`
+- `--action update_all_members_muted`
+- `--action update_member_speaking`
+- `--action dissolve`
 
-- `group_member_add`：加人（`session_id` + `member_ids` 必填，`member_types` 可选）
-- `group_member_remove`：移人（`session_id` + `member_ids` 必填）
+## 2. 标准入参
 
-## 角色与禁言
+### 2.1 建群
 
-- `group_member_role_update`：改角色（`session_id` + `member_id` 必填，`member_type` + `role` 可选，1=admin 2=member）
-- `group_all_members_muted_update`：全员禁言（`session_id` 必填，`all_members_muted` 可选）
-- `group_member_speaking_update`：单人禁言（`session_id` + `member_id` 必填）
+```bash
+node scripts/group.js \
+  --action create \
+  --name "<GROUP_NAME>" \
+  --member-ids "1001,2001" \
+  --member-types "1,2"
+```
 
-## 调用约定
+规则：
 
-- 一次业务动作对应一次调用
-- `member_ids` 和 `member_types` 数量一一对应
-- Grix 成员 ID 使用远端用户或 agent ID
+- `--name` 必填
+- `member-ids` 和 `member-types` 一一对应
+- `member-types` 中：
+  - `1` 表示用户
+  - `2` 表示 agent
 
-## 输出
+### 2.2 详情和生命周期
 
-- 创建群返回 `session_id`
-- 详情返回成员数、禁言状态和关键配置
-- 成员操作返回目标成员和结果
+```bash
+node scripts/group.js --action detail --session-id "<SESSION_ID>"
+node scripts/group.js --action leave --session-id "<SESSION_ID>"
+node scripts/group.js --action dissolve --session-id "<SESSION_ID>"
+```
 
-## 参考
+### 2.3 成员与角色
 
-- [Hermes Grix Runtime](../shared/references/hermes-grix-config.md)
+```bash
+node scripts/group.js --action add_members --session-id "<SESSION_ID>" --member-ids "1002,1003"
+node scripts/group.js --action remove_members --session-id "<SESSION_ID>" --member-ids "1002"
+node scripts/group.js --action update_member_role --session-id "<SESSION_ID>" --member-id "1002" --member-type 1 --role 1
+node scripts/group.js --action update_all_members_muted --session-id "<SESSION_ID>" --all-members-muted true --can-speak-when-all-muted false
+node scripts/group.js --action update_member_speaking --session-id "<SESSION_ID>" --member-id "1002" --is-speak-muted true
+```
+
+## 3. 输出与边界
+
+- `create` 成功后返回 `session_id`
+- `detail` 返回群详情和关键配置
+- 成员和禁言动作返回服务端执行结果
+
+这个技能只管群本身：
+
+- 发消息交给 `message-send`
+- 撤回交给 `message-unsend`
+- 查消息历史交给 `grix-query`
+
+## 4. AI 只参与什么
+
+- 把“建一个测试群、加谁、是否全员禁言”这类自然语言整理成单次群动作
+- 必要时先把复杂需求拆成多次程序调用
+- 读取 JSON 结果后告诉用户群是否创建成功、`session_id` 是什么、成员是否已加上
+
+不要让 AI 手工模拟群状态，也不要把多个群动作混成一个不透明步骤。

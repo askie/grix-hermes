@@ -1,7 +1,0 @@
-interface:
-  display_name: "Grix Update"
-  short_description: "Check and apply grix-hermes skill bundle updates."
-  default_prompt: "Use $grix-update to check and apply the latest grix-hermes skill bundle update."
-
-policy:
-  allow_implicit_invocation: true

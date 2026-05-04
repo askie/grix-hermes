@@ -1,7 +1,7 @@
 ---
 name: grix-query
-description: 查询 Grix 联系人、会话和消息历史。提供联系人搜索、会话搜索、消息历史读取和消息关键词搜索能力。
-version: 1.0.0
+description: 程序优先的 Grix 只读查询技能。AI 只负责把查询意图整理成标准动作和参数，再读取 JSON 结果。
+version: 2.0.0
 author: askie
 license: MIT
 metadata:
@@ -12,51 +12,68 @@ metadata:
 
 # Grix Query
 
-这个技能提供 Grix 只读查询能力。
+`grix-query` 的唯一入口是：
 
-## 执行方式
-
-使用 Hermes 原生工具 `grix_invoke`，通过已有 WebSocket 连接直接调用：
-
-```
-grix_invoke(action="contact_search", params={"keyword": "alice"})
-grix_invoke(action="session_search", params={"keyword": "测试群"})
-grix_invoke(action="message_history", params={"session_id": "<SESSION_ID>", "limit": 20})
-grix_invoke(action="message_search", params={"session_id": "<SESSION_ID>", "keyword": "身份", "limit": 20})
+```bash
+node scripts/query.js ... --json
 ```
 
-## 查询类型
+这个技能只做只读查询，不发消息、不建群、不改远端状态。
 
-- `contact_search`：搜索联系人
-- `session_search`：搜索会话
-- `message_history`：读取消息历史
-- `message_search`：搜索消息
+## 1. 标准动作
 
-读取消息历史的常用流程是先用 `session_search` 定位 `session_id`，再用 `message_history` 或 `message_search` 查询消息。
+- `--action contact_search`
+- `--action session_search`
+- `--action message_history`
+- `--action message_search`
 
-## 参数
+只有这 4 个动作是有效的。不要写成旧的 `history` 之类别名。
 
-- `keyword`：搜索关键词（contact_search、session_search、message_search 使用）
-- `session_id`：目标会话 ID（message_history、message_search 必填）
-- `id`：精确查询的记录 ID
-- `limit`：返回数量限制
-- `offset`：偏移量，用于分页
-- `before_id`：翻页游标，返回此 ID 之前的消息
+## 2. 标准入参
 
-## 分页规则
+### 2.1 联系人和会话
 
-- 第一页先用一个合理 `limit`
-- 继续翻页时复用同一个 `session_id`
-- `message_history` / `message_search` 下一页要带 `before_id`
-- 也可以用 `offset` 做偏移分页
+```bash
+node scripts/query.js --action contact_search --keyword "alice"
+node scripts/query.js --action session_search --keyword "测试群"
+```
 
-## 输出要求
+### 2.2 消息历史和关键词搜索
 
-- 成功时明确返回关键 ID
-- 联系人带 `peer_id` / `peer_type`
-- 会话带 `session_id`
-- 消息带 `msg_id` 和必要时间信息
+```bash
+node scripts/query.js --action message_history --session-id "<SESSION_ID>" --limit 20
+node scripts/query.js --action message_search --session-id "<SESSION_ID>" --keyword "身份" --limit 20
+```
 
-## 参考
+可选公共参数：
 
-- [Hermes Grix Runtime](../shared/references/hermes-grix-config.md)
+- `--id`
+- `--keyword`
+- `--session-id`
+- `--before-id`
+- `--limit`
+- `--offset`
+
+## 3. 推荐查询顺序
+
+- 先用 `session_search` 找到目标 `session_id`
+- 再用 `message_history` 或 `message_search` 查消息
+- 继续翻页时优先带 `--before-id`
+
+## 4. 输出与边界
+
+- 联系人结果里关注联系人 ID
+- 会话结果里关注 `session_id`
+- 消息结果里关注消息 ID、发送者和时间
+
+这个技能只负责读数据：
+
+- 发消息交给 `message-send`
+- 管理群交给 `grix-group`
+- 远端 agent 管理交给 `grix-admin`
+
+## 5. AI 只参与什么
+
+- 把“找某个群”“查最近 20 条消息”“搜关键词”这类自然语言整理成标准查询动作
+- 读取 JSON 结果后提炼关键 ID 和结论
+- 如果查询不到目标，再回头问用户更精确的关键词或上下文

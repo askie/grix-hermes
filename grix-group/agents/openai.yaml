@@ -1,7 +1,0 @@
-interface:
-  display_name: "Grix Group"
-  short_description: "Manage Grix groups and membership actions."
-  default_prompt: "Use $grix-group to create a Grix test group or manage its members."
-
-policy:
-  allow_implicit_invocation: true
