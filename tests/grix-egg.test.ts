@@ -39,7 +39,7 @@ if (script.endsWith("bin/grix-hermes.js")) {
 } else if (script.endsWith("bind_local.js")) {
   save("bind-input.json", fs.readFileSync(0, "utf8"));
   save("bind-args.json", args);
-  out({ profile_name: "safeagent" });
+  out({ profile_name: arg("--profile-name") || "safeagent" });
 } else if (script.endsWith("create_api_agent_and_bind.js")) {
   save("http-create-args.json", args);
   out({ bind_result: { agent_id: "http-agent", agent_name: "httpagent", profile_name: "httpagent", api_endpoint: "wss://http-target", api_key: "ak_123_HTTPSECRET" } });
@@ -77,6 +77,48 @@ if (script.endsWith("bin/grix-hermes.js")) {
 }
 
 describe("grix-egg bootstrap", () => {
+  it("incubates a fresh agent with only business inputs and auto-generated process params", () => {
+    const tmp = makeTempDir("grix-egg-minimal-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--agent-name", "雪碧",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        FAKE_ACCEPTANCE_SENDER: "agent-target",
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      install_id: string;
+      agent_name: string;
+      profile_name: string;
+      path?: string;
+    };
+    assert.match(output.install_id, /^egg-[0-9a-f]{8}$/);
+    assert.equal(output.agent_name, "雪碧");
+    assert.match(output.profile_name, /^egg-[a-z0-9_-]+$/);
+    assert.equal(output.path, "host");
+
+    const statePath = path.join(hermesHome, "tmp", `grix-egg-${output.install_id}.json`);
+    assert.equal(fs.existsSync(statePath), true);
+
+    const bindArgs = JSON.parse(fs.readFileSync(path.join(tmp, "bind-args.json"), "utf8")) as string[];
+    assert.equal(bindArgs.includes("--install-id"), false);
+    assert.equal(bindArgs[bindArgs.indexOf("--profile-name") + 1], output.profile_name);
+  });
+
   it("incubates an empty agent with only install id and agent name", () => {
     const tmp = makeTempDir("grix-egg-empty-");
     const hermesHome = path.join(tmp, "hermes");

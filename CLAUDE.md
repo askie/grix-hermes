@@ -53,7 +53,7 @@ Each of the 8 skills follows this layout:
 <skill-name>/
   SKILL.md           # Frontmatter + instruction docs for the AI agent (in Chinese)
   agents/
-    openai.yaml      # Hermes agent interface definition
+    openai.yaml      # Optional Hermes agent interface definition
   scripts/
     <skill>.ts       # Executable helper(s)
   references/        # (optional) Additional docs

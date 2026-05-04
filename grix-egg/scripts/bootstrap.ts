@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -49,6 +50,43 @@ function defaultInstallDir(hermesHome: string): string {
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+const PROFILE_NAME_PATTERN = /^(default|[a-z0-9][a-z0-9_-]{0,63})$/;
+
+function generateInstallId(): string {
+  return `egg-${randomBytes(4).toString("hex")}`;
+}
+
+function isValidProfileName(profileName: string): boolean {
+  return PROFILE_NAME_PATTERN.test(profileName);
+}
+
+function slugifyProfileCandidate(value: string): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "")
+    .slice(0, 64);
+}
+
+function resolveBootstrapProfileName(
+  explicitProfileName: string,
+  agentName: string,
+  installId: string,
+): string {
+  const requested = cleanText(explicitProfileName);
+  if (requested) return requested;
+
+  const requestedAgentName = cleanText(agentName);
+  if (isValidProfileName(requestedAgentName)) return requestedAgentName;
+
+  const derived = slugifyProfileCandidate(installId);
+  if (derived && derived !== "default" && isValidProfileName(derived)) return derived;
+
+  return generateInstallId();
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,7 +1234,7 @@ function parsePositiveFloat(value: unknown, fallback: number): number {
 }
 
 function validateProfileName(profileName: string): void {
-  if (!/^(default|[a-z0-9][a-z0-9_-]{0,63})$/.test(profileName)) {
+  if (!isValidProfileName(profileName)) {
     throw new Error(
       `Invalid Hermes profile name: ${profileName}. Must match [a-z0-9][a-z0-9_-]{0,63}`,
     );
@@ -1405,16 +1443,23 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  if (!cleanText(flags.installId)) {
-    process.stderr.write("Missing required flag: --install-id\n");
-    return 1;
-  }
   if (!cleanText(flags.agentName)) {
     process.stderr.write("Missing required flag: --agent-name\n");
     return 1;
   }
+  const requestedProfileName = cleanText(flags.profileName);
+  if (flags.resume && !cleanText(flags.installId)) {
+    process.stderr.write("Missing required flag for resume: --install-id\n");
+    return 1;
+  }
+  flags.installId = cleanText(flags.installId) || generateInstallId();
+  flags.profileName = resolveBootstrapProfileName(
+    flags.profileName,
+    flags.agentName,
+    flags.installId,
+  );
   try {
-    validateProfileName(cleanText(flags.profileName) || cleanText(flags.agentName));
+    validateProfileName(flags.profileName);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
@@ -1429,19 +1474,19 @@ async function main(): Promise<number> {
 
   // Load or create state
   let state: StateFile;
-  if (flags.resume) {
-    const loaded = loadState(stateFile);
-    if (!loaded) {
-      process.stderr.write(`No checkpoint found for --install-id ${flags.installId}. Starting fresh.\n`);
-      state = makeFreshState(flags);
+    if (flags.resume) {
+      const loaded = loadState(stateFile);
+      if (!loaded) {
+        process.stderr.write(`No checkpoint found for --install-id ${flags.installId}. Starting fresh.\n`);
+        state = makeFreshState(flags);
+      } else {
+        state = loaded;
+        // Allow flag overrides on resume
+        if (cleanText(flags.agentName)) state.agent_name = flags.agentName;
+        if (requestedProfileName) state.profile_name = flags.profileName;
+      }
     } else {
-      state = loaded;
-      // Allow flag overrides on resume
-      if (cleanText(flags.agentName)) state.agent_name = flags.agentName;
-      if (cleanText(flags.profileName)) state.profile_name = flags.profileName;
-    }
-  } else {
-    state = makeFreshState(flags);
+      state = makeFreshState(flags);
   }
 
   // Dry-run mode
