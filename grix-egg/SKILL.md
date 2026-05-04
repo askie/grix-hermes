@@ -94,6 +94,11 @@ grix_invoke(action="agent_category_list", params={})
 3. **脚本链排查**：确认 bootstrap 依赖的 `scripts/*.js` 在源码树/安装包里真实存在
 4. **独立 HTTP 链路**：如果业务上确实还需要旧注册/创建链路，再显式使用 `grix-register` 或 `create_api_agent_and_bind.js`
 
+补充参考：
+- `references/create-new-failure-triage.md`：区分 install/source-tree 阻塞、host capability 阻塞、HTTP token 阻塞
+- `references/hermes-host-admin-capability-mismatch.md`：`unsupported cmd for hermes` 的 capability/host-type 判读
+- `references/source-vs-installed-layout.md`：源码树与安装包布局兼容排查
+
 ### 宿主 create 路径
 
 当前 bootstrap 的实现是：**通过外部脚本链执行 WS 管理动作，而不是在 bootstrap 内直接 new WS client 做 create**。
@@ -191,7 +196,22 @@ node scripts/bootstrap.js \
 
 如果你已经有远端凭证，不要给 `create_new` 补 `--access-token` 期待自动切路；请直接改用 `--route existing`。
 
-### existing：绑定已有凭证
+### existing bind 的现场排障顺序（新）
+
+当用户要求“接管一个已存在 agent 并让它在 Grix 上线”时，优先按下面顺序排障，而不是直接假设只差一条绑定命令：
+
+1. 先确认远端 agent 已存在
+2. 若只有 `agent_id`，先轮换 key，拿到新的明文 `api_key`
+3. 在 `bind_local` 前验证 `install_dir` 是否真的是有效 bundle
+4. 若默认 bundle 结构残缺，直接从当前源码树导出一个临时 bundle 再绑定
+5. 中文 agent 名必须显式给 ASCII-safe `--profile-name`
+6. 先跑 `bind_local --dry-run --json`，确认 profile 路径、env 路径、install_dir、management_policy 都正确
+7. 正式绑定后再启动 gateway
+8. 若 `start_gateway.js` 报 failed，但 `gateway.log` 已显示 `Connected` / `✓ grix connected` / `Gateway running`，按“脚本 running-state 探测假负例”处理，不要误判为上线失败
+
+详细现场模式见：
+- `references/existing-bind-bundle-validation-and-key-rotate-fallback.md`
+
 
 如果用户给的是“已存在 agent 的 id”，但没有提供明文 `api_key`，不要尝试从脱敏输出或旧 checkpoint 里恢复 key。当前推荐路径是：
 
@@ -240,7 +260,13 @@ node scripts/bootstrap.js \
 脚本完成的本地操作：
 1. 安装 `grix-hermes` 技能包
 2. 创建本地 Hermes profile
+   - 重要更新：当前 `bind_local.js` 新建 profile 时已不再默认执行 `hermes profile create <name> --clone`，而是直接创建空白 profile。
+   - 创建后脚本会显式清空 `SOUL.md`、`memories/USER.md`、`memories/MEMORY.md`，避免继承当前 active profile 的身份、人设、用户称呼和长期记忆。
+   - 因此“创建空白 agent / 接管后保持空白身份”现在可以直接走默认 create 路径，不必先手工建空 profile 再 `--profile-mode reuse`。
+   - `--clone-from` 仍只应用于你明确想继承某个干净源 profile 的场景。
 3. 写入 `.env` 绑定凭证并继承 LLM provider key
+   - 重要澄清：profile `.env` 中写入的 `GRIX_API_KEY` 必须保留真实值，供 gateway/agent 运行时使用；不要把落盘 `.env` 改成 `ak_***` 或 `***`。
+   - 只有对外输出（`--json` 结果、stdout/stderr、checkpoint/plan 展示）需要做脱敏；测试也应分别断言“落盘是真值、输出是脱敏值”。
 4. 写入 `SOUL.md`（如提供）
 5. 启动 Hermes gateway
 
@@ -427,6 +453,38 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 
 不要把问题收敛成“源码模式走不通就只能发 npm”。如果 bootstrap 依赖的是固定脚本路径，那么更稳妥的修法通常是：**把这些路径在源码树和发布产物里都补齐**。
 
+### create_new 失败后的二次分流检查（新）
+
+当用户明确要求“现在就创建一个空 agent”，且你已经实际执行过一次 `bootstrap.js` 或等价创建链路后，不要只停留在“host 路径失败”这一层结论；还要立刻补做下面两项二次分流检查，并把结果一起汇报：
+
+1. **源码树 install 步是否先坏掉**
+   - 真实现象可能是：
+     - `step=install`
+     - `ENOENT: no such file or directory, lstat '/.../grix-admin'`
+   - 这属于 **source tree / install bundle 布局问题**，和远端 create capability 不是同一个层级。
+   - 结论应写成：
+     - `bootstrap` 甚至还没进入 create，就先在 install 步失败；
+     - 这不能被误报成“只是 Grix admin 不支持”。
+
+2. **HTTP fallback 事实上是否可用**
+   - 即使用户或运行摘要里看起来“曾经有 token”，也要再做一次真实校验：
+     - 当前进程环境里是否有 `GRIX_ACCESS_TOKEN`
+     - `~/.hermes/.env`
+     - `~/.hermes/profiles/<profile>/.env`
+   - 如果这些地方都没有有效 token，就应明确汇报：
+     - host/create_new 路径失败；
+     - HTTP create-api-agent 也因为缺少 `GRIX_ACCESS_TOKEN` 目前不可走；
+     - 所以当前阻塞是“两条创建路都不通”，而不是单一路径问题。
+
+这一步的价值是防止把问题错误收敛成：
+- “只差一个 access token”
+- 或“只是宿主 bridge 有问题”
+
+正确汇报应把三层问题拆开：
+- install 布局是否已阻塞
+- host admin/create capability 是否已阻塞
+- HTTP fallback 所需 `GRIX_ACCESS_TOKEN` 是否真实存在
+
 ### 修完脚本缺失后，下一层失败的判读
 
 如果补齐 `scripts/*.js` 后，`MODULE_NOT_FOUND` 消失，但真实空蛋孵化仍在 `create` 阶段报：
@@ -555,6 +613,10 @@ npm pack --dry-run
 
 也就是说，不要只保留旧的 `shared/cli/grix-hermes.js` 测试桩；否则真实代码已经兼容新 wrapper，但回归测试仍可能漏掉新布局。
 
+- `references/hermes-host-admin-capability-mismatch.md`：记录 `unsupported cmd for hermes` 下更精确的根因分层——优先怀疑 host_type / capability 代际不一致或服务端未对 hermes 开放 admin/create，而不是先把问题收敛成缺 `GRIX_ACCESS_TOKEN`
+
+- `references/create-new-failure-triage.md`：真实创建请求下，如何把 install 布局失败、host capability 缺口、HTTP token 缺失这三层阻塞拆开判读
+
 ## 相关参考
 
 - `references/host-live-bridge-state-alignment.md`：记录这轮 host-path / 测试 contract 收口前的审查结论，以及后来如何统一到当前实现
@@ -568,6 +630,11 @@ npm pack --dry-run
 - `references/host-create-vs-http-fallback.md`：说明为什么“补一个 access token 就能继续”的旧心智模型会把当前 `create_new` 语义说错
 
 - `references/chinese-agent-name-and-source-vs-bundle.md`：记录中文显示名、ASCII-safe profile 名，以及源码树/安装 bundle 分开判读的真实会话结论
+- `references/install-symlink-and-duplicate-name.md`：记录 install 目标经 symlink 指向源码树时应 no-op，以及 create_new 前进到“同名 Agent 已存在”后的正确分流
+
+- `references/blank-profile-clone-contamination.md`：记录 bind_local 曾因默认 `--clone` 污染新 profile 身份/记忆的根因、修复方式与验证探针
+- `references/existing-bind-bundle-validation-and-key-rotate-fallback.md`：记录 existing bind 场景下，先验证 bundle 结构、必要时导出临时 bundle、修 key-rotate 包装层不一致、以及 `start_gateway.js` 假失败的判读方法
+- `references/existing-agent-id-needs-key-rotate.md`：已有 agent 只有 `agent_id`、缺少明文 `api_key` 时，先轮换 key 再做 existing bind
 
 - `../grix-key-rotate/SKILL.md`：已有 agent 只有 `agent_id`、缺少明文 `api_key` 时，先轮换 key 再做 existing bind
 

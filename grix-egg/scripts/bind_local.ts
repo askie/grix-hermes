@@ -59,6 +59,14 @@ function writePrivateFile(filePath: string, contents: string): void {
   }
 }
 
+function ensureBlankProfileState(profileDir: string): void {
+  ensureDir(profileDir);
+  ensureDir(path.join(profileDir, "memories"));
+  writePrivateFile(path.join(profileDir, "SOUL.md"), "");
+  writePrivateFile(path.join(profileDir, "memories", "USER.md"), "");
+  writePrivateFile(path.join(profileDir, "memories", "MEMORY.md"), "");
+}
+
 function resolveDefaultHermesHome(): string {
   const raw = cleanText(process.env.HERMES_HOME) || "~/.hermes";
   return path.resolve(expandHome(raw));
@@ -363,7 +371,7 @@ function buildPlan(flags: Flags): Plan {
   if (!flags.dryRun) validateInstallDir(installDir);
 
   const createCmd: string[] | null = !profileExists
-    ? [flags.hermes, "profile", "create", profileName, "--clone"]
+    ? [flags.hermes, "profile", "create", profileName]
     : null;
   if (createCmd && cleanText(flags.cloneFrom)) {
     createCmd.push("--clone-from", cleanText(flags.cloneFrom));
@@ -594,6 +602,7 @@ function main(): number {
         commandResults.push({ cmd, stdout, stderr });
         if (cmd[0] === flags.hermes) {
           createdProfile = true;
+          ensureBlankProfileState(plan.profile_dir);
         } else if (stdout) {
           configResult = JSON.parse(stdout) as Record<string, unknown>;
         }

@@ -480,5 +480,64 @@ if (args[0] === "profile" && args[1] === "create") {
     const envPath = path.join(hermesHome, "profiles", "secureagent", ".env");
     assert.equal(modeOf(envPath), 0o600);
     assert.match(fs.readFileSync(envPath, "utf8"), /GRIX_API_KEY=ak_123_BINDSECRET/);
+    assert.match(result.stdout, /"GRIX_API_KEY":\s*"ak_\*\*\*"/);
+  });
+
+  it("creates blank persona files and does not clone the source profile by default", () => {
+    const tmp = makeTempDir("grix-bind-blank-");
+    const hermesHome = path.join(tmp, "hermes");
+    const installDir = path.join(tmp, "bundle");
+    for (const filePath of [
+      "bin/grix-hermes.js",
+      "lib/manifest.js",
+      "shared/cli/grix-hermes.js",
+      "grix-admin/SKILL.md",
+      "grix-egg/SKILL.md",
+    ]) {
+      const absolute = path.join(installDir, filePath);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "");
+    }
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const args = process.argv.slice(2);
+const stateDir = process.env.FAKE_STATE_DIR;
+fs.writeFileSync(path.join(stateDir, "hermes-args.json"), JSON.stringify(args));
+if (args[0] === "profile" && args[1] === "create") {
+  const profileDir = path.join(process.env.HERMES_HOME, "profiles", args[2]);
+  fs.mkdirSync(path.join(profileDir, "memories"), { recursive: true });
+  fs.writeFileSync(path.join(profileDir, "SOUL.md"), "legacy soul\\n");
+  fs.writeFileSync(path.join(profileDir, "memories", "USER.md"), "legacy user\\n");
+  fs.writeFileSync(path.join(profileDir, "memories", "MEMORY.md"), "legacy memory\\n");
+  process.stdout.write("created");
+} else {
+  process.stderr.write("unexpected hermes args: " + args.join(" "));
+  process.exit(9);
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bind_local.js"),
+      "--agent-name", "blankagent",
+      "--agent-id", "agent-blank",
+      "--api-endpoint", "wss://blank",
+      "--api-key", "ak_123_BLANKSECRET",
+      "--profile-name", "blankagent",
+      "--install-dir", installDir,
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, HERMES_HOME: hermesHome, FAKE_STATE_DIR: tmp },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const hermesArgs = JSON.parse(fs.readFileSync(path.join(tmp, "hermes-args.json"), "utf8")) as string[];
+    assert.deepEqual(hermesArgs, ["profile", "create", "blankagent"]);
+    const profileDir = path.join(hermesHome, "profiles", "blankagent");
+    assert.equal(fs.readFileSync(path.join(profileDir, "SOUL.md"), "utf8"), "");
+    assert.equal(fs.readFileSync(path.join(profileDir, "memories", "USER.md"), "utf8"), "");
+    assert.equal(fs.readFileSync(path.join(profileDir, "memories", "MEMORY.md"), "utf8"), "");
   });
 });
