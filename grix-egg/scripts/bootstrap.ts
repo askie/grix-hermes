@@ -359,8 +359,8 @@ function parseArgs(argv: string[]): Flags {
     hermesHome: "",
     hermes: "hermes",
     node: "node",
-    probeMessage: "probe",
-    expectedSubstring: "identity-ok",
+    probeMessage: "ping",
+    expectedSubstring: "pong",
     memberIds: "",
     memberTypes: "",
     agentId: "",
@@ -946,6 +946,7 @@ function stepBind(
     "--from-json", "-",
     "--profile-mode", "create-or-reuse",
     "--install-dir", installDir,
+    "--hermes-home", hermesHome,
     "--hermes", flags.hermes,
     "--node", flags.node,
     "--inherit-keys", "global",
@@ -1105,9 +1106,10 @@ async function stepAccept(
     runCommand([flags.node, scripts.sendScript, "--to", statusTarget, "--message", cardText], { env: cmdEnv });
   }
 
+  const acceptanceProbeMessage = buildAcceptanceProbeMessage(targetAgentId, probeMessage);
   const probeSentAtMs = Date.now();
   const probeSendResult = runCommand(
-    [flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", probeMessage],
+    [flags.node, scripts.sendScript, "--to", acceptanceSessionId, "--message", acceptanceProbeMessage],
     { env: cmdEnv },
   );
   const probePayload = parseJsonOutput(probeSendResult);
@@ -1124,7 +1126,7 @@ async function stepAccept(
     const queryResult = runCommand([
       flags.node,
       scripts.queryScript,
-      "--action", "history",
+      "--action", "message_history",
       "--session-id", acceptanceSessionId,
       "--limit", "10",
     ], { env: cmdEnv });
@@ -1147,7 +1149,7 @@ async function stepAccept(
         session_id: acceptanceSessionId,
         verified: true,
         target_agent_id: targetAgentId,
-        probe_message: probeMessage,
+        probe_message: acceptanceProbeMessage,
         probe_message_id: probeMessageId,
         expected_substring: expectedSubstring,
         reply_msg_id: extractMessageId(verifiedMessage),
@@ -1171,6 +1173,12 @@ async function stepAccept(
 // ---------------------------------------------------------------------------
 // Section 9: Helpers
 // ---------------------------------------------------------------------------
+
+function buildAcceptanceProbeMessage(targetAgentId: string, probeMessage: string): string {
+  const mention = `@[${targetAgentId}]`;
+  const message = cleanText(probeMessage);
+  return message.startsWith(mention) ? message : `${mention} ${message}`.trim();
+}
 
 function extractNested(payload: Record<string, unknown>, key: string): Record<string, unknown> {
   const value = payload[key];

@@ -50,20 +50,24 @@ if (script.endsWith("bin/grix-hermes.js")) {
   out({ data: { session_id: "session-accept" } });
 } else if (script.endsWith("send.js")) {
   const message = arg("--message");
-  if (message === "probe") out({ ok: true, ack: { message_id: "100" } });
+  if (message.includes("ping")) {
+    save("probe-message.txt", message);
+    out({ ok: true, ack: { message_id: "100" } });
+  }
   else out({ ok: true, ack: { message_id: "50" } });
 } else if (script.endsWith("query.js")) {
+  save("query-args.json", args);
   const falseOnly = process.env.FAKE_ACCEPTANCE_MODE === "false-only";
   const acceptedSender = process.env.FAKE_ACCEPTANCE_SENDER || "agent-target";
   out({
     data: {
       messages: falseOnly ? [
-        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
-        { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" }
+        { id: "99", sender_id: acceptedSender, content: "pong before ping" },
+        { id: "101", sender_id: "other-agent", content: "pong wrong sender" }
       ] : [
-        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
-        { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" },
-        { id: "102", sender_id: acceptedSender, content: "identity-ok after probe" }
+        { id: "99", sender_id: acceptedSender, content: "pong before ping" },
+        { id: "101", sender_id: "other-agent", content: "pong wrong sender" },
+        { id: "102", sender_id: acceptedSender, content: "pong after ping" }
       ]
     }
   });
@@ -117,6 +121,10 @@ describe("grix-egg bootstrap", () => {
     const bindArgs = JSON.parse(fs.readFileSync(path.join(tmp, "bind-args.json"), "utf8")) as string[];
     assert.equal(bindArgs.includes("--install-id"), false);
     assert.equal(bindArgs[bindArgs.indexOf("--profile-name") + 1], output.profile_name);
+    assert.equal(bindArgs[bindArgs.indexOf("--hermes-home") + 1], hermesHome);
+    assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@[agent-target] ping");
+    const queryArgs = JSON.parse(fs.readFileSync(path.join(tmp, "query-args.json"), "utf8")) as string[];
+    assert.equal(queryArgs[queryArgs.indexOf("--action") + 1], "message_history");
   });
 
   it("incubates an empty agent with only install id and agent name", () => {
@@ -165,8 +173,8 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "probe",
-      "--expected-substring", "identity-ok",
+      "--probe-message", "ping",
+      "--expected-substring", "pong",
       "--member-ids", "user-1",
       "--accept-timeout-seconds", "1",
       "--accept-poll-interval-seconds", "0.1",
@@ -204,7 +212,7 @@ describe("grix-egg bootstrap", () => {
     };
     assert.equal(state.steps.accept.result.reply_msg_id, "102");
     assert.equal(state.steps.accept.result.reply_sender_id, "agent-target");
-    assert.equal(state.steps.accept.result.reply_content, "identity-ok after probe");
+    assert.equal(state.steps.accept.result.reply_content, "pong after ping");
 
     const bindInput = fs.readFileSync(path.join(tmp, "bind-input.json"), "utf8");
     assert.ok(bindInput.includes("ak_123_SECRET"));
@@ -254,8 +262,8 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "probe",
-      "--expected-substring", "identity-ok",
+      "--probe-message", "ping",
+      "--expected-substring", "pong",
       "--accept-timeout-seconds", "0.2",
       "--accept-poll-interval-seconds", "0.1",
       "--json",
@@ -472,6 +480,8 @@ describe("grix-egg gateway startup", () => {
     const tmp = makeTempDir("grix-egg-gateway-");
     const hermesHome = path.join(tmp, "hermes");
     fs.mkdirSync(path.join(hermesHome, "profiles", "safeagent"), { recursive: true });
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
     const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
@@ -524,6 +534,8 @@ if (sub === "status") {
     const tmp = makeTempDir("grix-egg-gateway-launchd-");
     const hermesHome = path.join(tmp, "hermes");
     fs.mkdirSync(path.join(hermesHome, "profiles", "safeagent"), { recursive: true });
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
     const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const gatewayIndex = args.indexOf("gateway");
@@ -550,6 +562,37 @@ if (sub === "status") {
     const output = JSON.parse(result.stdout) as { already_running: boolean; start_mode: string };
     assert.equal(output.already_running, true);
     assert.equal(output.start_mode, "already_running");
+  });
+
+  it("fails when gateway output says messaging platforms were not loaded", () => {
+    const tmp = makeTempDir("grix-egg-gateway-health-");
+    const hermesHome = path.join(tmp, "hermes");
+    fs.mkdirSync(path.join(hermesHome, "profiles", "safeagent"), { recursive: true });
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const gatewayIndex = args.indexOf("gateway");
+const sub = gatewayIndex >= 0 ? args[gatewayIndex + 1] : "";
+if (sub === "status") {
+  process.stdout.write("running\\nNo messaging platforms enabled");
+} else {
+  process.stdout.write("ok");
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "start_gateway.js"),
+      "--profile-name", "safeagent",
+      "--hermes-home", hermesHome,
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /did not load the grix messaging platform/);
   });
 });
 

@@ -50,8 +50,11 @@ node scripts/bootstrap.js ... --json
 7. `accept`
    - 必做
    - 默认验收参数：
-     - `--probe-message probe`
-     - `--expected-substring identity-ok`
+     - `--probe-message ping`
+     - `--expected-substring pong`
+   - 程序发送验收消息时会自动加上目标 agent mention：
+     - `@[agent_id] ping`
+   - 只有目标 agent 在 probe 之后回复且内容包含 `pong`，才视为验收通过
 8. 输出 JSON
    - 成功：stdout
    - 失败：stderr，并带 `step / reason / suggestion / state_file / resume_command`

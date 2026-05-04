@@ -22,6 +22,7 @@ interface Flags {
   allowAllUsers: string;
   homeChannel: string;
   homeChannelName: string;
+  hermesHome: string;
   hermes: string;
   node: string;
   dryRun: boolean;
@@ -67,24 +68,24 @@ function ensureBlankProfileState(profileDir: string): void {
   writePrivateFile(path.join(profileDir, "memories", "MEMORY.md"), "");
 }
 
-function resolveDefaultHermesHome(): string {
-  const raw = cleanText(process.env.HERMES_HOME) || "~/.hermes";
+function resolveHermesHome(explicit: string): string {
+  const raw = cleanText(explicit) || cleanText(process.env.HERMES_HOME) || "~/.hermes";
   return path.resolve(expandHome(raw));
 }
 
-function resolveDefaultInstallDir(): string {
-  return path.join(resolveDefaultHermesHome(), "skills", "grix-hermes");
+function resolveDefaultInstallDir(hermesHome: string): string {
+  return path.join(hermesHome, "skills", "grix-hermes");
 }
 
-function resolveProfileDir(profileName: string): string {
+function resolveProfileDir(hermesHome: string, profileName: string): string {
   const normalized = cleanText(profileName);
-  if (!normalized || normalized === "default") return resolveDefaultHermesHome();
-  return path.resolve(path.join(resolveDefaultHermesHome(), "profiles", normalized));
+  if (!normalized || normalized === "default") return hermesHome;
+  return path.resolve(path.join(hermesHome, "profiles", normalized));
 }
 
-function resolveInstallDir(rawInstallDir: string): string {
+function resolveInstallDir(hermesHome: string, rawInstallDir: string): string {
   const raw = cleanText(rawInstallDir);
-  return raw ? path.resolve(expandHome(raw)) : resolveDefaultInstallDir();
+  return raw ? path.resolve(expandHome(raw)) : resolveDefaultInstallDir(hermesHome);
 }
 
 function isGrixBundleDir(candidate: string): boolean {
@@ -219,8 +220,7 @@ function resolveManagementPolicy(profileExists: boolean, isMain: boolean | null)
 
 const LLM_KEY_PATTERN = /^(?:.*_)?(?:API_KEY|BASE_URL|MODEL|URL)$/;
 
-function inheritLlmKeys(targetEnvPath: string, sourceProfileName: string | null): string[] {
-  const hermesHome = resolveDefaultHermesHome();
+function inheritLlmKeys(hermesHome: string, targetEnvPath: string, sourceProfileName: string | null): string[] {
   const candidates: string[] = [];
   if (sourceProfileName && sourceProfileName !== "default") {
     candidates.push(path.join(hermesHome, "profiles", sourceProfileName, ".env"));
@@ -355,12 +355,13 @@ interface Plan {
 }
 
 function buildPlan(flags: Flags): Plan {
+  const hermesHome = resolveHermesHome(flags.hermesHome);
   const profileName = cleanText(flags.profileName) || flags.agentName;
-  const profileDir = resolveProfileDir(profileName);
+  const profileDir = resolveProfileDir(hermesHome, profileName);
   const profileExists = fs.existsSync(profileDir);
   const isMain = parseOptionalBool(flags.isMain);
   const managementPolicy = resolveManagementPolicy(profileExists, isMain);
-  const installDir = resolveInstallDir(flags.installDir);
+  const installDir = resolveInstallDir(hermesHome, flags.installDir);
 
   if (profileExists && flags.profileMode === "create") {
     throw new Error(`Hermes profile already exists: ${profileName}`);
@@ -462,6 +463,7 @@ function parseArgs(argv: string[]): Flags {
     allowAllUsers: "",
     homeChannel: "",
     homeChannelName: "",
+    hermesHome: "",
     hermes: "hermes",
     node: "node",
     dryRun: false,
@@ -510,6 +512,7 @@ function parseArgs(argv: string[]): Flags {
     }
     if (token === "--home-channel") { const [v, j] = take(i); flags.homeChannel = v; i = j; continue; }
     if (token === "--home-channel-name") { const [v, j] = take(i); flags.homeChannelName = v; i = j; continue; }
+    if (token === "--hermes-home") { const [v, j] = take(i); flags.hermesHome = v; i = j; continue; }
     if (token === "--hermes") { const [v, j] = take(i); flags.hermes = v; i = j; continue; }
     if (token === "--node") { const [v, j] = take(i); flags.node = v; i = j; continue; }
     if (token === "--from-json") { const [v, j] = take(i); flags.fromJson = v; i = j; continue; }
@@ -586,6 +589,10 @@ function main(): number {
     }
 
     const plan = buildPlan(flags);
+    const commandEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      HERMES_HOME: resolveHermesHome(flags.hermesHome),
+    };
     let createdProfile = false;
     let envResult: EnvResult | null = null;
     let configResult: Record<string, unknown> | null = null;
@@ -595,7 +602,7 @@ function main(): number {
       for (const cmd of plan.commands) {
         const [bin, ...rest] = cmd;
         if (!bin) throw new Error("Empty command");
-        const result = spawnSync(bin, rest, { encoding: "utf8" });
+        const result = spawnSync(bin, rest, { encoding: "utf8", env: commandEnv });
         const code = result.status ?? -1;
         const stdout = (result.stdout || "").trim();
         const stderr = (result.stderr || "").trim();
@@ -615,7 +622,7 @@ function main(): number {
 
       const inheritSource = cleanText(flags.inheritKeys);
       if (inheritSource === "true" || inheritSource === "global") {
-        const inheritedKeys = inheritLlmKeys(plan.env_path, null);
+        const inheritedKeys = inheritLlmKeys(commandEnv.HERMES_HOME || "", plan.env_path, null);
         if (inheritedKeys.length > 0) {
           commandResults.push({
             cmd: ["inherit-llm-keys", "--source", "global"],
@@ -624,7 +631,7 @@ function main(): number {
           });
         }
       } else if (inheritSource) {
-        const inheritedKeys = inheritLlmKeys(plan.env_path, inheritSource);
+        const inheritedKeys = inheritLlmKeys(commandEnv.HERMES_HOME || "", plan.env_path, inheritSource);
         if (inheritedKeys.length > 0) {
           commandResults.push({
             cmd: ["inherit-llm-keys", "--source", inheritSource],

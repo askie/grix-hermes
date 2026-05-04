@@ -18,6 +18,13 @@ const POSITIVE_STATUS_HINTS = [
   "installed and running",
 ];
 
+const UNHEALTHY_GW_HINTS = [
+  "no messaging platforms enabled",
+  "no platforms enabled",
+  "grix disabled",
+  "grix platform disabled",
+];
+
 type StartSubcommand = "start" | "run";
 
 interface Flags {
@@ -123,6 +130,41 @@ function summarizeOutput(result: CommandOutput): string {
     .join("\n");
 }
 
+function assertGrixProfileConfigured(profileDir: string): void {
+  const configPath = path.join(profileDir, "config.yaml");
+  const envPath = path.join(profileDir, ".env");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`Hermes profile config is missing: ${configPath}`);
+  }
+  if (!fs.existsSync(envPath)) {
+    throw new Error(`Hermes profile env is missing: ${envPath}`);
+  }
+
+  const configText = fs.readFileSync(configPath, "utf8").toLowerCase();
+  const envText = fs.readFileSync(envPath, "utf8");
+  if (!/^\s*grix\s*:/m.test(configText)) {
+    throw new Error(`Hermes profile config does not include a grix channel: ${configPath}`);
+  }
+  for (const key of ["GRIX_ENDPOINT", "GRIX_AGENT_ID", "GRIX_API_KEY"]) {
+    if (!new RegExp(`^${key}=\\S+`, "m").test(envText)) {
+      throw new Error(`Hermes profile env is missing ${key}: ${envPath}`);
+    }
+  }
+}
+
+function assertGatewayOutputHealthy(outputs: Array<CommandOutput | null>): void {
+  const combined = outputs
+    .filter((output): output is CommandOutput => output !== null)
+    .map(summarizeOutput)
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  const hint = UNHEALTHY_GW_HINTS.find((candidate) => combined.includes(candidate));
+  if (hint) {
+    throw new Error(`Hermes gateway did not load the grix messaging platform: ${hint}`);
+  }
+}
+
 function statusIsRunning(result: CommandOutput): boolean {
   if (result.code !== 0) return false;
   const combined = summarizeOutput(result).toLowerCase();
@@ -201,6 +243,7 @@ function main(): number {
     if (!fs.existsSync(profileDir)) {
       throw new Error(`Hermes profile does not exist: ${profileDir}`);
     }
+    assertGrixProfileConfigured(profileDir);
 
     ensureHermesBinary(flags.hermes);
     const env = { ...process.env, HERMES_HOME: hermesHome };
@@ -258,6 +301,11 @@ function main(): number {
           `status_output:\n${summarizeOutput(statusAfter)}`,
       );
     }
+    assertGatewayOutputHealthy([
+      statusBefore,
+      statusAfter,
+      startAttempt?.result || null,
+    ]);
 
     const payload = {
       ok: true as const,
