@@ -54,15 +54,16 @@ if (script.endsWith("bin/grix-hermes.js")) {
   else out({ ok: true, ack: { message_id: "50" } });
 } else if (script.endsWith("query.js")) {
   const falseOnly = process.env.FAKE_ACCEPTANCE_MODE === "false-only";
+  const acceptedSender = process.env.FAKE_ACCEPTANCE_SENDER || "agent-target";
   out({
     data: {
       messages: falseOnly ? [
-        { id: "99", sender_id: "agent-target", content: "identity-ok before probe" },
+        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
         { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" }
       ] : [
-        { id: "99", sender_id: "agent-target", content: "identity-ok before probe" },
+        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
         { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" },
-        { id: "102", sender_id: "agent-target", content: "identity-ok after probe" }
+        { id: "102", sender_id: acceptedSender, content: "identity-ok after probe" }
       ]
     }
   });
@@ -107,9 +108,9 @@ describe("grix-egg bootstrap", () => {
     assert.ok(output.steps.soul);
     assert.ok(output.steps.accept);
     assert.equal(output.steps.soul.status, "skipped");
-    assert.equal(output.steps.accept.status, "skipped");
+    assert.equal(output.steps.accept.status, "done");
     assert.ok(fs.existsSync(path.join(tmp, "bind-input.json")));
-    assert.equal(fs.existsSync(path.join(tmp, "group-args.json")), false);
+    assert.equal(fs.existsSync(path.join(tmp, "group-args.json")), true);
   });
 
   it("keeps WS-created api keys out of checkpoints while binding with the real key", () => {
@@ -249,6 +250,7 @@ describe("grix-egg bootstrap", () => {
       env: {
         ...process.env,
         FAKE_STATE_DIR: tmp,
+        FAKE_ACCEPTANCE_SENDER: "http-agent",
         GRIX_ENDPOINT: "",
         GRIX_AGENT_ID: "",
         GRIX_API_KEY: "",
@@ -409,6 +411,7 @@ describe("grix-egg bootstrap", () => {
       env: {
         ...process.env,
         FAKE_STATE_DIR: tmp,
+        FAKE_ACCEPTANCE_SENDER: "agent-created",
         GRIX_ENDPOINT: "wss://caller",
         GRIX_AGENT_ID: "caller-agent",
         GRIX_API_KEY: "ak_123_CALLER",

@@ -21,7 +21,7 @@ metadata:
 3. **创建或接管远端 agent**
 4. **本地绑定 profile**
 5. **写入 SOUL / 启动 gateway**
-6. **验收测试**（可选）
+6. **验收测试（必做）**
 
 ## 面向普通用户的执行与汇报（新）
 
@@ -394,9 +394,47 @@ node scripts/bootstrap.js \
 
 如果你已经拿到了远端 agent 的完整凭证（`agent_id` / `api_endpoint` / `api_key`），优先直接用 `--route existing`。只有在“没有可复用 host 会话，但已通过 `grix-register login/register` 拿到 access token”这类场景下，才应给 `create_new` 传 `--access-token` 走 HTTP fallback。
 
-### existing bind 的现场排障顺序（新）
+### existing bind：当 admin CLI 输出被脱敏时如何继续（新）
 
-当用户要求“接管一个已存在 agent 并让它在 Grix 上线”时，优先按下面顺序排障，而不是直接假设只差一条绑定命令：
+已确认一个真实现场坑：
+
+- `node grix-admin/scripts/admin.js --action create_grix ...` 能成功创建远端 agent
+- 但 stdout 里的 `createdAgent.api_key` 是脱敏值（如 `ak_205...xxxx`），不能直接用于本地绑定
+- `node grix-admin/scripts/admin.js --action key_rotate --agent-id ...` 的 stdout 同样默认脱敏
+
+这时不要把 CLI 展示值当成真实凭证写入 `.env`。正确处理顺序应是：
+
+1. 允许继续用 admin CLI 完成“创建成功/拿到 agent_id 与 endpoint”的阶段
+2. 一旦进入 `--route existing` 绑定前，需要明文 `api_key` 时，改用共享 WS client 直连调用原始 `agent_api_key_rotate`
+3. 从原始 payload 取出明文 `api_key`
+4. 再把该明文 key 传给 `bootstrap.js --route existing`
+
+示例：
+
+```bash
+node --input-type=module - <<'NODE'
+import { resolveRuntimeConfig } from './shared/cli/config.js';
+import { AibotWsClient } from './shared/cli/aibot-client.js';
+
+const client = new AibotWsClient(resolveRuntimeConfig().connection);
+await client.connect();
+const data = await client.agentInvoke('agent_api_key_rotate', {
+  agent_id: '<AGENT_ID>'
+}, { timeoutMs: 15000 });
+console.log(JSON.stringify(data, null, 2));
+await client.disconnect();
+NODE
+```
+
+判读要点：
+
+- admin CLI 的职责是“安全展示/通用运维”，不是“向 stdout 暴露明文 secret”
+- 需要立即绑定时，应把“取明文 key”与“安全展示”两条路径区分开
+- 如果看到的是 `api_key_hint` 或 `ak_...` 形式，一律视为**不可直接绑定**
+
+详细记录见：
+- `../grix-admin/references/cli-masked-api-key-and-raw-rotate.md`
+
 
 1. 先确认远端 agent 已存在
 2. 若只有 `agent_id`，先轮换 key，拿到新的明文 `api_key`
@@ -476,7 +514,7 @@ node scripts/bootstrap.js \
 4. 写入 `SOUL.md`（如提供）
 5. 启动 Hermes gateway
 
-## 第三步：验收测试（可选）
+## 第三步：验收测试（必做）
 
 gateway 启动后，可通过 bootstrap 内置验收参数自动完成：建群、发探针、轮询消息历史、按目标 agent + 探针后消息判定是否通过。
 
@@ -546,8 +584,8 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 | `--agent-name` | Agent 名称；默认也作为 profile 名 |
 | `--access-token` | 用于独立 HTTP 工具链；通常应先通过 `grix-register login/register` 现场获取，再在 `create_new` 的 HTTP fallback 中传入 |
 | `--status-target` | 接收安装状态卡片的会话 |
-| `--probe-message` | 验收探针消息；提供后启用验收 |
-| `--expected-substring` | 目标 agent 回复中必须包含的子串 |
+| `--probe-message` | 验收探针消息；默认 `probe`，验收为必做步骤 |
+| `--expected-substring` | 目标 agent 回复中必须包含的子串；默认 `identity-ok` |
 | `--member-ids` | 验收群附加成员 ID，逗号分隔；脚本会自动补入目标 agent |
 | `--member-types` | 与 `--member-ids` 一一对应；省略时默认用户为 `1`，目标 agent 为 `2` |
 | `--accept-timeout-seconds` | 验收超时，默认 `15` |
@@ -574,7 +612,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
     "bind": { "status": "done" },
     "soul": { "status": "skipped" },
     "gateway": { "status": "done" },
-    "accept": { "status": "skipped" }
+    "accept": { "status": "done" }
   }
 }
 ```
@@ -704,8 +742,10 @@ channels:
        wsUrl: <API_ENDPOINT>
    ```
 4. 绑定时传入 `--allow-all-users true` 后，profile `.env` 中能看到 `GRIX_ALLOW_ALL_USERS=true`
+5. 当把 accept 改成必做步骤后，fake 验收消息源必须允许按场景切换目标 sender_id；否则 HTTP fallback 与 `createdAgent` 场景会因为 sender 不匹配而假失败
 
 - `references/bind-chain-createdagent-and-source-checkout.md`：记录 `createdAgent` 包装误判、bind 参数透传遗漏、源码 checkout installDir 兼容、以及缺少 `channels.grix.wsUrl` 导致离线的组合问题
+- `references/accept-required-and-test-sender-adaptation.md`：记录 accept 从 skipped 改为必做后，如何让 fake `query.js` 按 `FAKE_ACCEPTANCE_SENDER` 产出与目标 agent 一致的 sender_id，避免严格验收下的假超时
 
 ### create_new 失败后的二次分流检查（新）
 

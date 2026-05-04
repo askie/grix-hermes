@@ -42,6 +42,7 @@ grix_invoke(action="agent_category_assign", params={"agent_id": "<AGENT_ID>", "c
 - `agent_api_key_rotate` 返回轮换结果
 - 分类动作返回服务端分类结果
 - 状态查询返回服务端状态结果
+- 重要：通过 `grix-admin/scripts/admin.js` 输出到 stdout 的 agent `api_key` 默认会被脱敏；如果后续要立刻拿明文 key 做 `grix-egg --route existing` 绑定，不要直接复用 CLI stdout，而应改用共享 WS client 直连调用 `agent_api_key_rotate` 取原始 payload。参考：`references/cli-masked-api-key-and-raw-rotate.md`
 
 ## 参考
 

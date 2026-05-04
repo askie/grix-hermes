@@ -321,8 +321,8 @@ function parseArgs(argv: string[]): Flags {
     hermesHome: "",
     hermes: "hermes",
     node: "node",
-    probeMessage: "",
-    expectedSubstring: "",
+    probeMessage: "probe",
+    expectedSubstring: "identity-ok",
     memberIds: "",
     memberTypes: "",
     agentId: "",
@@ -1015,8 +1015,12 @@ async function stepAccept(
   const expectedSubstring = cleanText(flags.expectedSubstring);
 
   if (!probeMessage || !expectedSubstring) {
-    markStepSkipped(state, "accept");
-    return;
+    throw new BootstrapError(
+      "accept", 7,
+      "验收步骤已设为必做，但缺少 probe-message 或 expected-substring",
+      "为 bootstrap 提供可用的 --probe-message / --expected-substring，或保持默认验收参数不覆盖为空值。",
+      `probe_message=${JSON.stringify(probeMessage)}, expected_substring=${JSON.stringify(expectedSubstring)}`,
+    );
   }
 
   const createResult = state.steps.create?.result;
