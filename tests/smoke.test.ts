@@ -23,7 +23,6 @@ describe("smoke", () => {
     const skills = [
       "grix-admin",
       "grix-egg",
-      "grix-key-rotate",
       "grix-group",
       "grix-query",
       "grix-register",
