@@ -47,7 +47,21 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { positional, flags };
 }
 
+function samePathOrTarget(a: string, b: string): boolean {
+  const resolvedA = path.resolve(a);
+  const resolvedB = path.resolve(b);
+  if (resolvedA === resolvedB) return true;
+  try {
+    return fs.realpathSync.native(resolvedA) === fs.realpathSync.native(resolvedB);
+  } catch {
+    return false;
+  }
+}
+
 function copyRecursive(src: string, dest: string, force: boolean): void {
+  if (samePathOrTarget(src, dest)) {
+    return;
+  }
   if (fs.existsSync(dest)) {
     if (!force) {
       throw new Error(`Destination already exists: ${dest}. Use --force to overwrite.`);
