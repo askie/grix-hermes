@@ -12,7 +12,7 @@ HOME=/Users/gcf node /Volumes/disk1/go/src/grix-hermes/grix-egg/scripts/bootstra
   --agent-name 雪碧 \
   --profile-name xuebi \
   --route create_new \
-  --access-token "$GRIX_ACCESS_TOKEN" \
+  --access-token "<token obtained via grix-register login/register>" \
   --json
 ```
 
@@ -49,9 +49,9 @@ grix_invoke(action="agent_category_list", params={})
 - 说明当前会话虽然可探测到 WS 凭证，但宿主 Hermes→Grix 运行时没有暴露可用的 admin/create invoke 能力。
 - 因此 `create_new` 的 host 路径当前不能真正创建远端 agent。
 
-## 3. HTTP fallback 层失败：当前没有可用 GRIX_ACCESS_TOKEN
+## 3. HTTP fallback 层失败：当时也没有通过登录现场拿到可用 access token
 
-本次还额外核查了三处 token 来源：
+本次还额外核查了三处历史 token 线索：
 
 1. 当前进程环境变量
 2. `/Users/gcf/.hermes/.env`
@@ -63,7 +63,8 @@ grix_invoke(action="agent_category_list", params={})
 
 要点：
 - 即使其他凭证（如 `GRIX_AGENT_ID` / `GRIX_API_KEY`）存在，也不能据此推断 HTTP 创建链路可用。
-- 此时应明确告诉用户：不是“只差把 create_new 再试一次”，而是 **host 路径失败 + HTTP 路径也缺 token**。
+- 这里真正缺的不是“预置环境变量”，而是**尚未向用户获取邮箱/账号与密码，并通过 `grix-register login/register` 现场换取 access token**。
+- 此时应明确告诉用户：不是“只差把 create_new 再试一次”，而是 **host 路径失败 + HTTP 路径当时也还没完成登录取 token 这一步**。
 
 ## 4. 新证据：admin capability 已恢复时，仍可能被 install/source-tree 布局先拦住
 
@@ -115,9 +116,9 @@ HOME=/Users/gcf node /Volumes/disk1/go/src/grix-hermes/grix-egg/scripts/bootstra
 - 当前有三层阻塞需分开看：
   1. 源码树 bootstrap install 先失败
   2. 宿主 admin/create capability 返回 `unsupported cmd for hermes`
-  3. HTTP create-api-agent 需要的 `GRIX_ACCESS_TOKEN` 当前不存在
+  3. HTTP create-api-agent 当时还没有先通过 `grix-register login/register` 获取 access token
 - 因此当前状态应表述为：
-  - “两条创建路都不通”，而不是单一路径报错
+  - “host 路径受阻，而 HTTP fallback 也还没完成前置登录取 token”，而不是单一路径报错
 
 ## 额外细节
 

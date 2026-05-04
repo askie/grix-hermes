@@ -34,9 +34,10 @@ When a user says:
 Treat that as a root-cause correction, not just a preference.
 
 The diagnosis should become:
-- create_new transport design is wrong
-- `HTTP fallback` is not the right primary fix
-- the missing piece is a **host bridge** that lets bootstrap/admin request the host to perform `grix_invoke`
+- `create_new` should prefer reusable host session credentials when available
+- if reusable host session credentials are absent, HTTP fallback is acceptable
+- but that fallback should use an access token obtained live through `grix-register login/register`, not a presumed environment variable
+- the longer-term architectural gap is still a true host bridge for direct `grix_invoke` reuse
 
 ## Important negative finding
 
@@ -64,6 +65,7 @@ Only after that should bootstrap switch create_new primary behavior away from bu
 ## Temporary safe fallback
 
 If the host bridge does not exist yet, the honest temporary workaround is:
-- use `--route existing` with explicit credentials or `--bind-json`
+- use `create_new` with host-first semantics, allowing HTTP fallback only after the operator has obtained an access token through `grix-register login/register`
+- or use `--route existing` with explicit credentials / `--bind-json`
 
-Do not describe `--access-token` as something the user should obviously obtain. The user explicitly rejected that assumption, and the architecture discussion showed they were right.
+Do not describe `--access-token` as something that should already exist in env. If HTTP fallback is needed, the expected operator flow is to ask for account/email + password, obtain a fresh token, then continue.

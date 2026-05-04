@@ -115,6 +115,11 @@ interface Flags {
   apiEndpoint: string;
   apiKey: string;
   bindJson: string;
+  accountId: string;
+  allowedUsers: string;
+  allowAllUsers: string;
+  homeChannel: string;
+  homeChannelName: string;
   acceptTimeoutSeconds: string;
   acceptPollIntervalSeconds: string;
   resume: boolean;
@@ -324,6 +329,11 @@ function parseArgs(argv: string[]): Flags {
     apiEndpoint: "",
     apiKey: "",
     bindJson: "",
+    accountId: "",
+    allowedUsers: "",
+    allowAllUsers: "",
+    homeChannel: "",
+    homeChannelName: "",
     acceptTimeoutSeconds: "15",
     acceptPollIntervalSeconds: "1",
     resume: false,
@@ -357,6 +367,11 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--api-endpoint" && next !== undefined) { flags.apiEndpoint = next; i += 1; continue; }
     if (token === "--api-key" && next !== undefined) { flags.apiKey = next; i += 1; continue; }
     if (token === "--bind-json" && next !== undefined) { flags.bindJson = next; i += 1; continue; }
+    if (token === "--account-id" && next !== undefined) { flags.accountId = next; i += 1; continue; }
+    if (token === "--allowed-users" && next !== undefined) { flags.allowedUsers = next; i += 1; continue; }
+    if (token === "--allow-all-users" && next !== undefined) { flags.allowAllUsers = next; i += 1; continue; }
+    if (token === "--home-channel" && next !== undefined) { flags.homeChannel = next; i += 1; continue; }
+    if (token === "--home-channel-name" && next !== undefined) { flags.homeChannelName = next; i += 1; continue; }
     if (token === "--accept-timeout-seconds" && next !== undefined) { flags.acceptTimeoutSeconds = next; i += 1; continue; }
     if (token === "--accept-poll-interval-seconds" && next !== undefined) { flags.acceptPollIntervalSeconds = next; i += 1; continue; }
     if (token === "--resume") { flags.resume = true; continue; }
@@ -375,9 +390,9 @@ function suggestForError(step: StepName, errorMessage: string): string {
   switch (step) {
     case "detect":
       if (lower.includes("no") && lower.includes("access-token")) {
-        return "当前实现不应依赖 --access-token 作为主路径。请在具备宿主 Grix 能力的 Hermes 会话中运行，或显式提供已有 agent 凭证走 --route existing。";
+        return "当前宿主 Grix 主路径不可用，且还没有可用于 HTTP fallback 的 access token。请向用户获取邮箱/账号和密码，通过 grix-register 登录换取 token 后再继续；或显式提供已有 agent 凭证走 --route existing。";
       }
-      return "检查当前 Hermes 会话是否具备可用的 Grix 宿主能力，或提供已有 agent 凭证走 --route existing。";
+      return "检查当前 Hermes 会话是否具备可用的 Grix 宿主能力；若宿主主路径不可用，则向用户获取邮箱/账号和密码，通过 grix-register 登录换取 token 后再走 HTTP fallback，或提供已有 agent 凭证走 --route existing。";
     case "install":
       return "确认 npm 包已安装，或指定正确的 --install-dir。";
     case "create":
@@ -497,14 +512,25 @@ function stepDetect(
       ws_profile_name: wsDiagnostics.selectedProfileName || "",
       transport: "host_grix_session",
     });
-  } else {
-    throw new BootstrapError(
-      "detect", 1,
-      "未检测到可复用的 Grix 宿主会话凭证",
-      "请在已连接 Grix 的 Hermes 会话中运行，或显式提供已有 agent 凭证走 --route existing。",
-      formatWsCredentialDiagnostics(wsDiagnostics),
-    );
+    return;
   }
+
+  if (cleanText(flags.accessToken)) {
+    setStatePath(state, "http");
+    markStepDone(state, "detect", {
+      path: "http",
+      transport: "http_login_token",
+      token_source: "cli_flag_access_token",
+    });
+    return;
+  }
+
+  throw new BootstrapError(
+    "detect", 1,
+    "未检测到可复用的 Grix 宿主会话凭证，且也没有可用于 HTTP fallback 的 access token",
+    "请先检查当前 Hermes 会话是否已连接 Grix；如果宿主链路不可用，则向用户获取邮箱/账号和密码，通过 grix-register login/register 换取 access token 后再重试；或显式提供已有 agent 凭证走 --route existing。",
+    formatWsCredentialDiagnostics(wsDiagnostics),
+  );
 }
 
 function backupExistingState(
@@ -567,6 +593,8 @@ function normalizeBindPayload(payload: Record<string, unknown>, flags: Flags): R
   const handoffBindHermes = extractNested(handoff, "bind_hermes");
   const bindLocal = extractNested(payload, "bind_local");
   const handoffBindLocal = extractNested(handoff, "bind_local");
+  const data = extractNested(payload, "data");
+  const createdAgent = extractNested(payload, "createdAgent");
   const source = Object.keys(bindHermes).length > 0
     ? bindHermes
     : Object.keys(handoffBindHermes).length > 0
@@ -575,7 +603,11 @@ function normalizeBindPayload(payload: Record<string, unknown>, flags: Flags): R
         ? bindLocal
         : Object.keys(handoffBindLocal).length > 0
           ? handoffBindLocal
-          : payload;
+          : Object.keys(createdAgent).length > 0
+            ? createdAgent
+            : Object.keys(data).length > 0
+              ? data
+              : payload;
 
   const agentName = cleanText(source.agent_name || source.name || flags.agentName);
   const profileName = cleanText(source.profile_name || agentName || flags.profileName);
@@ -699,11 +731,14 @@ async function stepCreateWs(
   const result = runCommand(cmd, { env });
   const payload = parseJsonOutput(result);
 
-  const createdAgent = extractNested(payload, "data") || payload;
-  const agentId = cleanText(createdAgent.agent_id || createdAgent.id);
-  const apiEndpoint = cleanText(createdAgent.api_endpoint || createdAgent.endpoint);
-  const apiKey = cleanText(createdAgent.api_key);
-  const agentName = cleanText(createdAgent.agent_name || createdAgent.name || flags.agentName);
+  const createdAgent = extractNested(payload, "createdAgent");
+  const createdAgentSource = Object.keys(createdAgent).length > 0
+    ? createdAgent
+    : extractNested(payload, "data") || payload;
+  const agentId = cleanText(createdAgentSource.agent_id || createdAgentSource.id);
+  const apiEndpoint = cleanText(createdAgentSource.api_endpoint || createdAgentSource.endpoint);
+  const apiKey = cleanText(createdAgentSource.api_key);
+  const agentName = cleanText(createdAgentSource.agent_name || createdAgentSource.name || flags.agentName);
 
   if (!agentId || !apiEndpoint || !apiKey) {
     throw new BootstrapError(
@@ -764,9 +799,22 @@ function stepCreateHttp(
     "--install-dir", installDir,
     "--profile-name", profileName,
     "--is-main", flags.isMain,
+    "--account-id", cleanText(flags.accountId) || cleanText(env.GRIX_ACCOUNT_ID) || "main",
+    "--allowed-users", cleanText(flags.allowedUsers),
+    "--allow-all-users", flags.allowAllUsers,
+    "--home-channel", cleanText(flags.homeChannel),
+    "--home-channel-name", cleanText(flags.homeChannelName),
     "--inherit-keys", "global",
     "--json",
   ];
+  if (!cleanText(flags.accessToken)) {
+    throw new BootstrapError(
+      "create", 3,
+      "HTTP fallback 缺少 access token，无法继续创建 agent",
+      "请先向用户获取邮箱/账号和密码，通过 grix-register login 换取 access token；如用户还没有账号，则先走 send-email-code/register/login，再重试。",
+      "missing --access-token for HTTP fallback",
+    );
+  }
   appendTextFlag(cmd, "--base-url", flags.baseUrl);
   appendTextFlag(cmd, "--avatar-url", flags.avatarUrl);
 
@@ -784,7 +832,7 @@ function stepCreateHttp(
     throw new BootstrapError(
       "create", 3,
       `HTTP 创建 agent 未返回有效凭证。agent_id=${agentId}, api_endpoint=${apiEndpoint}`,
-      "检查 --access-token 是否有效，网络是否能访问 Grix API。",
+      "检查是否已先通过 grix-register login/register 获取有效 access token，并确认网络可访问 Grix API。",
       result.stderr || result.stdout,
     );
   }
@@ -852,6 +900,9 @@ function stepBind(
     profile_name: profileName,
   });
 
+  const defaultAllowedUsers = cleanText(flags.allowedUsers);
+  const defaultAllowAllUsers = cleanText(flags.allowAllUsers) || (defaultAllowedUsers ? "" : "true");
+
   const cmd = [
     flags.node, scripts.bindScript,
     "--from-json", "-",
@@ -862,6 +913,11 @@ function stepBind(
     "--inherit-keys", "global",
     "--is-main", flags.isMain,
     "--profile-name", profileName,
+    "--account-id", cleanText(flags.accountId) || cleanText(env.GRIX_ACCOUNT_ID) || "main",
+    "--home-channel", cleanText(flags.homeChannel),
+    "--home-channel-name", cleanText(flags.homeChannelName),
+    "--allowed-users", defaultAllowedUsers,
+    "--allow-all-users", defaultAllowAllUsers,
     "--json",
   ];
 
@@ -869,10 +925,13 @@ function stepBind(
   const payload = parseJsonOutput(result);
   const bindResult = extractNested(payload, "bind_result") || payload;
   const resolvedProfile = cleanText(bindResult.profile_name) || profileName;
+  const resolvedProfileDir = cleanText(bindResult.profile_dir) || resolveProfileDir(hermesHome, resolvedProfile);
 
   markStepDone(state, "bind", {
     profile_name: resolvedProfile,
-    profile_dir: resolveProfileDir(hermesHome, resolvedProfile),
+    profile_dir: resolvedProfileDir,
+    env_path: cleanText(bindResult.env_path),
+    config_path: cleanText(bindResult.config_path),
   });
   state.profile_name = resolvedProfile;
 }
@@ -1049,6 +1108,9 @@ async function stepAccept(
         probe_message: probeMessage,
         probe_message_id: probeMessageId,
         expected_substring: expectedSubstring,
+        reply_msg_id: extractMessageId(verifiedMessage),
+        reply_sender_id: extractSenderIds(verifiedMessage)[0] || "",
+        reply_content: extractMessageText(verifiedMessage),
         verified_message: verifiedMessage,
       });
       return;

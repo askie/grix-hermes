@@ -16,6 +16,7 @@ interface Flags {
   config?: string;
   externalDirs: string[];
   managementPolicy?: string;
+  channelGrixWsUrl?: string;
   dryRun?: boolean;
   json?: boolean;
 }
@@ -36,6 +37,11 @@ function parseArgs(argv: string[]): Flags {
     }
     if (token === "--management-policy" && argv[index + 1]) {
       flags.managementPolicy = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (token === "--channel-grix-ws-url" && argv[index + 1]) {
+      flags.channelGrixWsUrl = argv[index + 1];
       index += 1;
       continue;
     }
@@ -166,6 +172,21 @@ for (const externalDir of requestedExternalDirs) {
 const nextDisabledSkills = applyManagementPolicy(currentDisabledSkills, managementPolicy);
 skillsObj.external_dirs = nextExternalDirs;
 skillsObj.disabled = nextDisabledSkills;
+
+const requestedGrixWsUrl = String(flags.channelGrixWsUrl || "").trim();
+if (requestedGrixWsUrl) {
+  const channels =
+    config.channels && typeof config.channels === "object" && !Array.isArray(config.channels)
+      ? (config.channels as Record<string, unknown>)
+      : {};
+  config.channels = channels;
+  const grix =
+    channels.grix && typeof channels.grix === "object" && !Array.isArray(channels.grix)
+      ? (channels.grix as Record<string, unknown>)
+      : {};
+  grix.wsUrl = requestedGrixWsUrl;
+  channels.grix = grix;
+}
 
 const payload = {
   ok: true,

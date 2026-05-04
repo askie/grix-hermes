@@ -128,7 +128,8 @@ function statusIsRunning(result: CommandOutput): boolean {
   const combined = summarizeOutput(result).toLowerCase();
   if (!combined) return false;
   if (NEGATIVE_STATUS_HINTS.some((hint) => combined.includes(hint))) return false;
-  return POSITIVE_STATUS_HINTS.some((hint) => combined.includes(hint));
+  if (POSITIVE_STATUS_HINTS.some((hint) => combined.includes(hint))) return true;
+  return /(\bpid\b|launchd|loaded|plist)/.test(combined);
 }
 
 function serviceLooksUnavailable(result: CommandOutput): boolean {

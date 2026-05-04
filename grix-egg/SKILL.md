@@ -23,12 +23,27 @@ metadata:
 5. **写入 SOUL / 启动 gateway**
 6. **验收测试**（可选）
 
-当前 `bootstrap.js` 现在应收敛为两类语义：
+## 面向普通用户的执行与汇报（新）
 
-- `--route create_new`：要求复用宿主 Hermes/Grix live bridge 完成远端创建
+当用户只是想“帮我创建一个 agent / 让它上线”，且任务语义已经足够明确时：
+
+- 直接执行，不要先停下来做确认式追问
+- 不要默认抛一大段技术细节、预检细节、路径细节
+- 正常汇报应尽量只给：
+  - 是否创建成功
+  - agent 名称
+  - profile 名
+  - 如有需要再给 agent_id
+- 只有失败、卡住、或用户追问“为什么”时，再展开技术原因
+
+也就是说，这类任务的默认外显风格应是：**先把事做完，再用最短结果式语言回报**，而不是把排障过程当成主输出。
+
+当前 `bootstrap.js` 现在应收敛为两类主语义：
+
+- `--route create_new`：优先复用宿主 Hermes/Grix live bridge 完成远端创建；当宿主 WS/create 能力不存在或不可用时，可改走独立 HTTP create-and-bind fallback
 - `--route existing`：跳过创建，直接绑定已有凭证
 
-其中 `create_new` 的设计目标是：**宿主 Grix 能力优先；如果宿主 create 能力不可用，应直接报出能力缺口，而不是自动退回 `access_token` / HTTP create-and-bind。**
+其中 `create_new` 的设计目标是：**宿主 Grix 能力优先；但如果宿主 create 能力不存在，允许走 `access_token` / HTTP create-and-bind fallback。只有当 host 与 HTTP 两条链路都不可用时，才应把能力缺口直接暴露出来。**
 ## 第一步：创建远端 Agent
 
 默认设计里，空蛋孵化的首选路径是：**复用当前 Grix WebSocket/host live bridge 完成远端创建**。也就是说：
@@ -63,7 +78,7 @@ metadata:
 - 当前会话是否具备 admin invoke / create 能力，或
 - 当前 bootstrap 所依赖的 WS 脚本链是否完整可用
 
-如果宿主 create 能力不可用，当前实现应直接失败并报出能力缺口；不要把 `create_new` 描述成会自动切到 `access_token` 的 HTTP fallback。
+如果宿主 create 能力不可用，当前实现应优先判断是否具备可用的 HTTP create-and-bind 条件；若已通过 `grix-register login/register` 现场拿到可用 access token，则允许 `create_new` 改走 HTTP fallback。只有 host 与 HTTP 两条创建链都不可用时，才应明确暴露能力缺口。
 
 ### 前置检查：确认当前会话具备 Grix admin invoke 能力
 
@@ -92,7 +107,7 @@ grix_invoke(action="agent_category_list", params={})
 1. **已有凭证绑定**：让上游提供 `agent_id` / `api_endpoint` / `api_key`，然后走 `--route existing`
 2. **环境排查**：检查当前 Hermes gateway / Grix adapter 的 capability 协商是否真的暴露了 admin invoke / create
 3. **脚本链排查**：确认 bootstrap 依赖的 `scripts/*.js` 在源码树/安装包里真实存在
-4. **独立 HTTP 链路**：如果业务上确实还需要旧注册/创建链路，再显式使用 `grix-register` 或 `create_api_agent_and_bind.js`
+4. **HTTP 链路**：如果宿主 create 不可用，允许改走 `grix-register` / `create_api_agent_and_bind.js`；但 token 不应假设已预置在环境变量里，优先应向用户获取邮箱和密码，通过登录实时换取 access token，再继续后续创建/绑定
 
 补充参考：
 - `references/create-new-failure-triage.md`：区分 install/source-tree 阻塞、host capability 阻塞、HTTP token 阻塞
@@ -126,26 +141,29 @@ grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main"
 grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main": true, "category_id": "<CATEGORY_ID>"})
 ```
 
-### 当前实现不会自动回退到 HTTP create-and-bind
+### 当前实现的 host / HTTP 分流说明
 
 当 `detect` 判定当前路径是 `host`，但真实执行 `create_grix` 时返回类似：
 
 - `grix error: code=4004 msg=unsupported cmd for hermes`
 - `agent_invoke failed: ... unsupported cmd for hermes`
 
-当前 `bootstrap.js` 的正确行为是：
+应分两层理解：
 
-1. 保持 `steps.detect.result.path = "host"`
-2. 保持顶层 `state.path = "host"`
-3. 将 `steps.create.status` 标记为 `failed`
-4. 不自动调用 HTTP create-and-bind，即使命令行同时提供了 `--access-token`
+1. `detect` 仍可先判定“当前环境存在可复用宿主会话凭证”
+2. 但真实 host create/admin capability 仍可能不可用
+
+在这种情况下，当前推荐语义应是：
+
+- 若同时具备有效的 HTTP create-and-bind 条件（例如已通过登录现场拿到 access token），则允许 `create_new` 自动改走 HTTP fallback
+- 若 HTTP 前置也不满足，再把失败直接暴露给用户
 
 这意味着：
 
 - `WS 已连上` 仍然是首选探测结果
-- 但如果宿主运行时不支持 create/admin bridge，当前实现会直接把失败暴露给用户
-- 后续建议应是：补宿主侧 create bridge，或改走 `--route existing`
-- 不要把“补一个 `--access-token` 再重跑”描述成当前实现的默认恢复路径
+- 但 host create 能力失败并不一定意味着整次 `create_new` 必须终止
+- 是否继续，取决于 HTTP fallback 所需前置是否真实存在
+- 汇报时应明确区分：宿主 create bridge 失败，与 HTTP fallback 不可用，是两个层级的问题
 
 ### 真实复验时的注意点（新）
 
@@ -153,7 +171,8 @@ grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main"
 
 1. **当前 `create_new` 是否依赖宿主 create bridge**
 2. **当前仓库是否另外保留了独立 HTTP 创建工具**
-3. **当前环境是否真的具备跑通独立 HTTP 链路所需的 `GRIX_ACCESS_TOKEN`**
+3. **当前是否真的具备跑通独立 HTTP 链路所需的登录前置**
+   - 例如是否已经向用户获取邮箱/账号与密码，并能现场登录换取 access token
 
 不要把“环境里没有 token”误报成“`create_new` 仍未修好”；二者是不同层级的问题。
 
@@ -178,13 +197,192 @@ grix_invoke(action="agent_api_create", params={"agent_name": "<NAME>", "is_main"
 - 但测试桩或旧 bundle 仍只创建 `shared/cli/grix-hermes.js`
 - 结果 `bind_local` 被错误判定为“不是有效 bundle”
 
+### create_new 成功创建但脚本误判失败（新）
+
+已验证一种真实现场模式：
+
+- `bootstrap.js --route create_new` 在 `step=create` 失败
+- 表面报错：`WS 创建 agent 未返回有效凭证`
+- 但 `raw_error` / stdout 里其实已经有：
+  - `ok: true`
+  - `action: create_grix`
+  - `createdAgent.id`
+  - `createdAgent.api_endpoint`
+  - `createdAgent.api_key`
+
+这类情况应判定为：
+
+- 远端 agent 实际已经创建成功
+- 当前阻塞是 `bootstrap` 对 host create 返回结构解析不兼容，而不是真创建失败
+
+现场处理应立刻改为：
+
+1. 从 `createdAgent` 提取 `id / api_endpoint / api_key`
+2. 保留原显示名
+3. 中文名仍显式提供 ASCII-safe `--profile-name`
+4. 直接改走 `--route existing` 完成本地绑定和 gateway 启动
+
+如果同时遇到 `Install dir points to a git checkout`，不要把源码树直接传给 `--install-dir`；先从源码树导出一个临时 bundle，再把该 bundle 用于 existing bind。
+
+详细现场记录见：
+- `references/create-new-createdagent-false-failure.md`
+
+### create_new 成功但 gateway 因 profile home 错位假失败（新）
+
+已验证一种真实现场模式：
+
+- `create` 与 `bind` 已成功，state file 里已有目标 `agent_id / api_endpoint`
+- `bind.result.profile_dir` 写在当前受保护 profile 的嵌套路径下（如 `~/.hermes/profiles/grix-online/profiles/<name>`）
+- 但 `hermes --profile <name> gateway status` / `restart` 实际查看的是根 profile `~/.hermes/profiles/<name>`
+- 根 profile 因缺少 `.env` 与 `channels.grix.wsUrl`，日志会出现 `No messaging platforms enabled.`
+- 于是 `bootstrap` 在 `step=gateway` 假失败，容易被误判成整次创建失败
+
+现场处理顺序应是：
+
+1. 先读 state file，确认 `create.status=done` 且已有 `agent_id / api_endpoint`
+2. 再比对 `bind.result.profile_dir` 与 `hermes --profile <name> profile show <name>` 指向的真实 profile 路径是否一致
+3. 若根 profile 日志是 `No messaging platforms enabled.`，优先判定为 profile home 错位
+4. 将嵌套 profile 中的 `config.yaml` / `.env` 同步到真实根 profile
+5. 若 `.env` 内 `GRIX_API_KEY` 已是遮掩值（如 `ak_***` / `***` / hint 形式），先对目标 agent 做 key rotate，再写回根 profile `.env`
+6. `hermes --profile <name> gateway restart`，并以日志中的 `Connecting to grix...`、`[Grix] Connected to ...`、`✓ grix connected` 验收
+
+详细现场记录见：
+- `references/profile-home-mismatch-gateway-false-failure.md`
+
+### create_new 后 profile 路径漂移、gateway 假失败与验收脚本假通过（新）
+
+又确认了一组真实现场坑，三者可能连续出现：
+
+1. `bind` 步在 state 里记录的 `profile_dir` 落在“当前 profile 的子目录”里，例如：
+   - `~/.hermes/profiles/grix-online/profiles/fenda`
+2. 但真实 Hermes `profile show fenda` 解析到的 live profile 却是：
+   - `~/.hermes/profiles/fenda`
+3. 结果是：创建链把 `.env` / `config.yaml` 写进了嵌套错目录，真正运行的 live profile 反而没有 Grix 配置，于是 gateway 日志先出现：
+   - `No messaging platforms enabled.`
+
+这类场景下，不要仅根据 state 里的 `bind.profile_dir` 判定“本地绑定已完成可用”；必须额外核对：
+
+- `hermes --profile <name> profile show <name>` 返回的真实 profile 路径
+- 该 live profile 下是否真的存在：
+  ```yaml
+  channels:
+    grix:
+      wsUrl: <API_ENDPOINT>
+  ```
+- 以及 live profile `.env` 是否真的包含可用的 `GRIX_ENDPOINT` / `GRIX_AGENT_ID` / `GRIX_API_KEY`
+
+如果 state 路径与 live profile 路径不一致，应以 **live profile** 为准修复配置，不要只修错写进去的嵌套目录。
+
+同时又确认：`start_gateway.js` 在 macOS launchd 场景可能出现 **状态检测假失败**：
+
+- `bootstrap` 在 `step=gateway` 报：
+  - `Hermes gateway did not report a running state after startup`
+- 但 `gateway status` 只是返回 launchd plist / PID 元数据，没有显式 `running` 字样
+- 实际 gateway 日志随后已经出现：
+  - `Connecting to grix...`
+  - `[Grix] Connected to ...`
+  - `✓ grix connected`
+  - `Gateway running with 1 platform(s)`
+
+因此，对这类报错应判定为：
+- **`start_gateway.js` 的 status string matcher 假红**，
+- 而不是真正的 gateway 启动失败。
+
+现场处理顺序应改为：
+1. 先看 gateway 日志是否已真实连上 Grix
+2. 若日志已连上，则继续后续可用性检查，不要被 `step=gateway` 误导停住
+3. 若同时存在 profile 路径漂移，先修 live profile，再重启 gateway
+
+另外，这轮还确认 `grix-egg/scripts/verify_acceptance.js` 目前不能作为权威验收：
+
+- 它只是在整段 `message_history` JSON 文本里查 `expectedSubstring`
+- 不校验 `sender_id`
+- 不校验命中的消息是否晚于 probe
+
+因此，如果 probe 自己就包含 `expectedSubstring`，脚本会 **假通过**。
+
+对真正的验收，必须满足三条件：
+1. 命中消息的发送者是目标 agent
+2. 内容包含 `expectedSubstring`
+3. 消息晚于 probe（优先比 `msg_id`，拿不到再比时间）
+
+必要时应直接复用 `bootstrap.ts` 里的严格验收逻辑，或手工按上面三条复核；不要仅凭 `verify_acceptance.js` 的 `ok=true` 宣布通过。
+
+针对“普通用户让我直接创建一个 agent”这类任务，还要补一条：
+
+- 创建完成并上线后，不能把新 agent 默认锁成只允许发起人一个人访问，否则会干扰群聊验收与代测
+- 验收阶段优先保证 agent 可被实际测试：
+  - 优先使用 `GRIX_ALLOW_ALL_USERS=true`，或
+  - 至少不要只把 `GRIX_ALLOWED_USERS` 写成发起人个人 user id
+- 只有当用户明确要求收紧访问范围，或验收完成后再做权限收口时，才改成精确 allowlist
+
+这轮真实现象里，如果把 `.env` 直接写成仅允许单一用户，会让“别人代测 / 群里验收 / 多账号探针”都变得不可靠，容易把权限问题误判成 agent 不回复。
+
+因此对普通用户交付，验收前至少确认其一：
+- `GRIX_ALLOW_ALL_USERS=true`，或
+- `GRIX_ALLOWED_USERS` 已按测试方案显式配置为覆盖实际验收参与者，而不是只写发起人一个 id
+
+### 手工修 `.env` 时不要把脱敏值写回（新）)
+
+这轮又确认一个高风险坑：
+
+- `read_file` / 对外展示里的 `.env` 可能把 `GRIX_API_KEY` 显示成脱敏形式（如 `***`、`ak_205...xxxx`）
+- 如果直接拿这个展示值去 `patch` 原文件，相当于把真实 key 覆盖成假值
+- 结果重启后会报：
+  - `grix auth failed: code=10001 msg=auth failed`
+
+处理原则：
+
+1. 修改 `.env` 里访问控制项（如 `GRIX_ALLOWED_USERS` / `GRIX_ALLOW_ALL_USERS`）前，先意识到工具展示的 `GRIX_API_KEY` 可能已脱敏
+2. 不要用脱敏展示文本做整段替换，避免把真实 key 一起覆盖掉
+3. 更安全的做法：
+   - 只做最小行级修改；或
+   - 修改后立刻用脚本/二进制方式校验落盘的 `GRIX_API_KEY` 不是 `***` / `...` 掩码；或
+   - 一旦怀疑已覆盖，立刻对目标 agent 做 key rotate 并回写 `.env`
+4. 重启前至少确认：
+   - `GRIX_API_KEY` 落盘是真值
+   - `GRIX_ALLOW_ALL_USERS=true` 或 `GRIX_ALLOWED_USERS` 符合当前验收方案
+
+### 手工补做群验收后的收口动作（新）
+
+如果 bootstrap 初始 state 里 `gateway` 假失败、`accept` 仍是 `pending`，但你后来已经手工修好 profile、放通访问控制，并在测试群里验证了目标 agent 真正回复，则后续不要只口头宣布通过；还要做这两个收口动作：
+
+1. 向测试群补发一条明确结果消息，例如：
+   - `群测试通过：<AGENT_NAME> 已完成当前群回复验证。`
+2. 回填 state file，把这次人工复核的最终状态补齐：
+   - 顶层 `updated_at` / `completed_at`
+   - `steps.gateway.status=done`，并记录最小验证信号（如 `✓ grix connected`）
+   - `steps.accept.status=done`
+   - `steps.accept.result` 至少记录：
+     - `session_id`
+     - `probe_msg_id`
+     - `reply_msg_id`
+     - `reply_sender_id`
+     - `reply_content`
+
+这样后续再看 install state，就不会停留在“gateway failed / accept pending”的假失败状态。
+
+详细现场记录见：
+- `references/manual-acceptance-closeout.md`
+
+### 面向该用户的创建类交付风格（新）
+
+当用户只是要求“创建一个 agent”时：
+
+- 默认直接执行，不做执行前确认
+- 成功后只简短回报结果（名称 / profile / agent_id 或等价最小结果）
+- 除非失败或用户追问，否则不要主动展开技术细节、预检过程、脚本路径或中间状态
+
+仅在真实失败、存在副作用分叉、或用户明确要求解释时，再补充技术说明。
+
 ## 第二步：本地绑定
+
 
 拿到远端凭证后，调用本地脚本完成 profile 创建、凭证写入和 gateway 启动。
 
 ### create_new：让 bootstrap 按当前语义创建
 
-`create_new` 现在的语义是：优先复用宿主 Grix live bridge；如果宿主 create 能力不可用，则直接失败并暴露能力缺口，而不是自动改走 HTTP fallback。
+`create_new` 现在的语义是：优先复用宿主 Grix live bridge；如果没有可复用宿主会话、但已经通过 `grix-register login/register` 现场拿到 access token，则允许走 HTTP fallback；如果已经 detect 到 `host`，但 host create 返回 `unsupported cmd for hermes`，则保持 host 语义并直出该能力缺口，而不是因为顺手传了 `--access-token` 就静默切路。只有两条链路都不可用时，才直接失败并暴露阻塞点。
 
 ```bash
 node scripts/bootstrap.js \
@@ -194,7 +392,7 @@ node scripts/bootstrap.js \
   --json
 ```
 
-如果你已经有远端凭证，不要给 `create_new` 补 `--access-token` 期待自动切路；请直接改用 `--route existing`。
+如果你已经拿到了远端 agent 的完整凭证（`agent_id` / `api_endpoint` / `api_key`），优先直接用 `--route existing`。只有在“没有可复用 host 会话，但已通过 `grix-register login/register` 拿到 access token”这类场景下，才应给 `create_new` 传 `--access-token` 走 HTTP fallback。
 
 ### existing bind 的现场排障顺序（新）
 
@@ -206,11 +404,19 @@ node scripts/bootstrap.js \
 4. 若默认 bundle 结构残缺，直接从当前源码树导出一个临时 bundle 再绑定
 5. 中文 agent 名必须显式给 ASCII-safe `--profile-name`
 6. 先跑 `bind_local --dry-run --json`，确认 profile 路径、env 路径、install_dir、management_policy 都正确
-7. 正式绑定后再启动 gateway
-8. 若 `start_gateway.js` 报 failed，但 `gateway.log` 已显示 `Connected` / `✓ grix connected` / `Gateway running`，按“脚本 running-state 探测假负例”处理，不要误判为上线失败
+7. 正式绑定完成后，必须检查生成出来的 profile `config.yaml` 是否真的包含：
+   ```yaml
+   channels:
+     grix:
+       wsUrl: <API_ENDPOINT>
+   ```
+   如果没有这段，gateway 虽然可能会启动，但日志会出现 `No messaging platforms enabled.`，远端 Grix agent 也会保持离线。
+8. 同时检查 profile `.env` 是否包含可用的 `GRIX_API_KEY` 真值；如果 `.env` 里落盘成了 `ak_***` / `***` 这类遮掩值，真实启动会在连接 Grix 时出现 `grix auth failed: code=10001 msg=auth failed`。
+9. 若补齐 `channels.grix.wsUrl` 或修正 `.env` 后，需要重启该 profile 的 gateway，再以日志中的 `Connected to ...` / `✓ grix connected` 作为上线验证。
 
 详细现场模式见：
 - `references/existing-bind-bundle-validation-and-key-rotate-fallback.md`
+- `references/created-agent-offline-missing-channel-or-masked-key.md`
 
 
 如果用户给的是“已存在 agent 的 id”，但没有提供明文 `api_key`，不要尝试从脱敏输出或旧 checkpoint 里恢复 key。当前推荐路径是：
@@ -338,7 +544,7 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 |------|------|
 | `--install-id` | 安装实例 ID。可生成 `egg-` 加 8 位随机 hex |
 | `--agent-name` | Agent 名称；默认也作为 profile 名 |
-| `--access-token` | 仅供独立 HTTP 工具链使用；`create_new` 不应把它当成自动 fallback 开关 |
+| `--access-token` | 用于独立 HTTP 工具链；通常应先通过 `grix-register login/register` 现场获取，再在 `create_new` 的 HTTP fallback 中传入 |
 | `--status-target` | 接收安装状态卡片的会话 |
 | `--probe-message` | 验收探针消息；提供后启用验收 |
 | `--expected-substring` | 目标 agent 回复中必须包含的子串 |
@@ -452,6 +658,54 @@ grix_invoke(action="send_msg", params={"session_id": "<STATUS_SESSION_ID>", "con
 - **编译/安装模式**：npm 包里也会带上同名 `scripts/*.js`
 
 不要把问题收敛成“源码模式走不通就只能发 npm”。如果 bootstrap 依赖的是固定脚本路径，那么更稳妥的修法通常是：**把这些路径在源码树和发布产物里都补齐**。
+
+### 绑定链路参数透传与源码 checkout installDir（新）
+
+这轮又确认了一个真实坑：`bootstrap.ts` 即使已经拿到远端凭证，如果在调用 `bind_local.js` 时没有把下面这些绑定期语义继续透传下去，最终 profile 仍可能表现为“能创建、但默认不可用”或“权限/归属不对”：
+
+- `--account-id`
+- `--allowed-users`
+- `--allow-all-users`
+- `--home-channel`
+- `--home-channel-name`
+
+修复原则应是：
+
+1. `stepCreateHttp()` 走 HTTP create-and-bind 时，这些参数要直接透传给 `create_api_agent_and_bind.js`
+2. `stepBind()` 走 host/existing bind 时，也要继续传给 `bind_local.js`
+3. 如果是 host 路径且用户没显式给 `--allowed-users`，可默认回落到当前宿主 `GRIX_AGENT_ID`
+4. 若既没有 `allowed_users` 也没有显式限制用户，默认应允许 `--allow-all-users true`，避免新 profile 因默认访问控制而表现为“已绑定但不可用”
+
+同时，`bind_local.ts` 对 `--install-dir` 的校验不能只按“git checkout 一律拒绝”处理。正确语义应是：
+
+- 若 `installDir` 是 git checkout，**但本身已包含可用的 grix-hermes bundle 结构**，则允许直接绑定
+- 只有当它是源码 checkout 且缺少运行时所需 bundle 入口时，才应报错要求改用发布包或先导出 bundle
+
+另外，`patch_profile_config.ts` 在绑定时应把当前 agent 的 `api_endpoint` 同步写入：
+
+```yaml
+channels:
+  grix:
+    wsUrl: <API_ENDPOINT>
+```
+
+否则 profile 虽然 `.env` 已有 `GRIX_*`，Hermes 启动后仍可能出现 `No messaging platforms enabled.`，表现为 agent 离线。
+
+### 这类修复的回归测试点（新）
+
+补测试时至少覆盖：
+
+1. host create 返回 `createdAgent` 包装结构时，`bootstrap` 能正确提取 `id/api_endpoint/api_key`
+2. `bind_local` 接受“带 `.git` 的源码 checkout installDir”，前提是该目录已具备可用 bundle 结构
+3. 绑定后 `config.yaml` 包含：
+   ```yaml
+   channels:
+     grix:
+       wsUrl: <API_ENDPOINT>
+   ```
+4. 绑定时传入 `--allow-all-users true` 后，profile `.env` 中能看到 `GRIX_ALLOW_ALL_USERS=true`
+
+- `references/bind-chain-createdagent-and-source-checkout.md`：记录 `createdAgent` 包装误判、bind 参数透传遗漏、源码 checkout installDir 兼容、以及缺少 `channels.grix.wsUrl` 导致离线的组合问题
 
 ### create_new 失败后的二次分流检查（新）
 
@@ -622,6 +876,8 @@ npm pack --dry-run
 - `references/host-live-bridge-state-alignment.md`：记录这轮 host-path / 测试 contract 收口前的审查结论，以及后来如何统一到当前实现
 
 ## 相关参考
+
+- `references/create-new-host-first-http-login-fallback.md`：本轮收口后的精确语义——detect 可落到 `host` 或 `http`；HTTP fallback 需要先经 `grix-register login/register` 现场取 token；若已 detect=host 且 host create 返回 `unsupported cmd for hermes`，则保持 host 失败语义，不静默切 HTTP
 
 - `references/ws-fallback-and-bundle-compat.md`：记录旧讨论里关于 WS create / fallback / bundle 兼容性的历史背景；若与当前 `bootstrap.ts` / tests 不一致，以当前 host-first、失败直出能力缺口的实现与测试为准
 

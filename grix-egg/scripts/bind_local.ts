@@ -110,10 +110,10 @@ function validateInstallDir(installDir: string): void {
         "Run `npx -y @dhf-hermes/grix install` first or pass --install-dir.",
     );
   }
-  if (fs.existsSync(path.join(installDir, ".git"))) {
+  if (fs.existsSync(path.join(installDir, ".git")) && !isGrixBundleDir(installDir)) {
     throw new Error(
-      `Install dir points to a git checkout: ${installDir}. ` +
-        "Use the published package install dir instead of the local source tree.",
+      `Install dir points to a git checkout without a usable grix-hermes bundle: ${installDir}. ` +
+        "Build or install grix-hermes first, or pass a bundle directory.",
     );
   }
   if (!isGrixBundleDir(installDir)) {
@@ -406,6 +406,7 @@ function buildPlan(flags: Flags): Plan {
 
   const configPath = path.join(profileDir, "config.yaml");
   const envPath = path.join(profileDir, ".env");
+  const grixWsUrl = cleanText(flags.apiEndpoint);
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const patchScript = path.join(here, "patch_profile_config.js");
@@ -421,6 +422,8 @@ function buildPlan(flags: Flags): Plan {
     installDir,
     "--management-policy",
     managementPolicy,
+    "--channel-grix-ws-url",
+    grixWsUrl,
     "--json",
   ]);
 

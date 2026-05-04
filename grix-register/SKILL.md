@@ -54,6 +54,17 @@ node scripts/grix_auth.js login --email <EMAIL> --password <PASSWORD>
 node scripts/grix_auth.js login --account <ACCOUNT> --password <PASSWORD>
 ```
 
+## HTTP fallback 的推荐调用顺序（新）
+
+当 `grix-egg create_new` 需要改走 HTTP fallback 时，推荐顺序不是假设环境里已经存在 `GRIX_ACCESS_TOKEN`，而是：
+
+1. 向用户获取邮箱/账号与密码
+2. 如用户尚未注册，先 `send-email-code` → `register`
+3. 执行 `login`，现场拿到 access token
+4. 再调用 `create-api-agent` 或 `create_api_agent_and_bind.js`
+
+也就是说，`--access-token` 仍是底层脚本参数，但上层工作流应优先通过登录实时获取，而不是把预置环境变量当成默认前提。
+
 ## 创建 API Agent
 
 ```bash
@@ -67,7 +78,7 @@ node scripts/grix_auth.js create-api-agent \
 
 参数：
 
-- `--access-token`：登录或注册后得到的 access token
+- `--access-token`：登录或注册后得到的 access token。推荐现场通过 `login` 或 `register` 子命令获取，而不是要求用户预先设置 `GRIX_ACCESS_TOKEN` 环境变量。
 - `--agent-name`：远端 agent 名称
 - `--is-main`：是否主 agent，默认 `true`
 - `--avatar-url`：agent 头像 URL

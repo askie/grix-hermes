@@ -11,20 +11,20 @@
    - meaning: current Hermes/Grix host runtime did not expose host/admin create capability
 
 3. Correct product behavior for `bootstrap.js` now:
-   - if detect says `host`
-   - and host create fails with `unsupported cmd for hermes`
-   - bootstrap should keep host-path semantics and fail fast
+   - `create_new` remains host-first when reusable host session credentials exist
+   - but when no reusable host session exists and the operator has already obtained an access token through `grix-register login/register`, HTTP create-and-bind is an allowed fallback
+   - if detect says `host` and host create fails with `unsupported cmd for hermes`, bootstrap should keep host-path semantics and fail fast
    - checkpoint/state should keep:
      - `steps.detect.result.path = host`
      - top-level `state.path = host`
      - `steps.create.status = failed`
-   - it should NOT automatically fall back to HTTP create-and-bind just because `--access-token` was supplied
+   - it should NOT silently switch away from a detected host path just because `--access-token` was supplied
 
 4. Real-environment verification caveat:
-   - independent HTTP tooling may still exist in the repo
-   - but that is separate from `create_new` semantics
-   - if the environment lacks `GRIX_ACCESS_TOKEN`, report that only as a limitation for the independent HTTP path
-   - do not misreport it as the reason `create_new` failed
+   - independent HTTP tooling still exists in the repo
+   - and for `create_new`, that HTTP path is a valid fallback when host session reuse is unavailable
+   - but the token source should be an operator login flow (`grix-register login/register`), not an assumed pre-set `GRIX_ACCESS_TOKEN`
+   - if host create failed after `detect=host`, do not misreport that as an HTTP credential problem
 
 5. bind_local bundle validation learned compatibility rule:
    - new layout may ship `shared/cli/skill-wrapper.js`

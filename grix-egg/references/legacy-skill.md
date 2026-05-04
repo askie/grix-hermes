@@ -40,11 +40,11 @@ node scripts/install_flow.js \
 
 创建远端 API agent 时，按以下优先级判断走哪条路：
 
-1. payload 显式包含 `grix_register` → 旧 JSON 字段，走 HTTP（需要 `access_token`）
+1. payload 显式包含 `grix_register` → 旧 JSON 字段，走 HTTP（底层仍需要 `access_token`，但推荐先通过 `grix-register login/register` 现场获取）
 2. payload 显式包含 `grix_admin` → 旧 JSON 字段，走 WS 远端创建
 3. 都没有 → 自动探测当前环境是否已配置 Grix WS 运行时凭证
    - 有（`GRIX_ENDPOINT` + `GRIX_AGENT_ID` + `GRIX_API_KEY`）→ 自动走 WS 远端创建
-   - 没有 → 报错，需要上层提供 HTTP access token
+   - 没有 → 若已通过登录现场拿到 access token，可走 HTTP fallback；否则需要上层先完成登录/注册取 token
 
 ### 绑定路径
 
