@@ -62,6 +62,33 @@ node scripts/grix_update.js \
 Use the grix-update skill with {"install_dir":"~/.hermes/skills/grix-hermes"}
 ```
 
+## 发布 / npm 认证注意事项（新）
+
+如果是在 Hermes profile 内执行 `npm whoami`、`npm login`、`publish_npm.sh` 或 `publish.sh --publish`，先确认当前进程看到的 `HOME` 不是被 profile 重定向后的隔离目录。否则即使真实机器已经登录过 npm，这个会话里仍可能表现为：
+
+- `npm whoami` 报 `ENEEDAUTH`
+- `publish_npm.sh --publish` 报 `npm auth missing`
+- 当前 profile 下看不到 `~/.npmrc`
+
+对这个用户当前机器，稳妥做法是显式切回真实 HOME 再做 npm 认证/发布：
+
+```bash
+HOME=/Users/gcf npm whoami
+HOME=/Users/gcf npm login
+HOME=/Users/gcf bash ./scripts/publish_npm.sh --publish --version <x.y.z> --confirm-package @dhf-hermes/grix@<x.y.z> --confirm-tarball dhf-hermes-grix-<x.y.z>.tgz
+```
+
+如果 `--preview` 已通过，而 `--publish` 只失败在 npm auth，这通常说明：
+
+1. 代码/测试/打包流程本身没问题
+2. 阻塞点只是当前运行环境读不到真实 `~/.npmrc`
+3. 应先修正 `HOME` 或补 npm token，而不是继续改发布脚本
+
+补充参考：
+- `references/npm-publish-auth-under-hermes-home.md`：Hermes profile HOME 重定向导致 npm publish 读不到真实凭证时的判读与恢复路径
+
 ## 参考
 
 - [Cron Setup](references/cron-setup.md)
+- [NPM Publish Auth under Hermes HOME](references/npm-publish-auth-under-hermes-home.md)
+
