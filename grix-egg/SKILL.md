@@ -103,7 +103,11 @@ node scripts/bootstrap.js ... --json
   - 只有调用方想固定本地 profile 名时才需要
   - 省略时程序自动处理：
     - agent 名合法时直接复用 agent 名
-    - agent 名不合法时自动生成 ASCII-safe profile 名
+    - agent 名不合法时，必须补 `--profile-name-suffix`，或直接显式传 `--profile-name`
+- `--profile-name-suffix`
+  - 只有 agent 名不是 ASCII-safe、但调用方又希望 profile 名可读时才需要
+  - 应传 agent 的英文名或其它 ASCII-safe 标识
+  - 程序会生成 `egg-<suffix>` 形式的 profile 名
 - `--install-dir`
 - `--hermes-home`
 - `--hermes`
@@ -179,6 +183,8 @@ AI 可以把自然语言转换为标准参数，例如：
   - `--agent-name 雪碧`
   - `--soul-content ...`
   - 其余保持默认
+- “agent 名是中文，但本地 profile 要带英文后缀，方便识别”
+  - 在上面基础上补 `--profile-name-suffix xuebi`
 - “需要额外校验回复里必须带某个词”
   - 在上面基础上补 `--expected-substring`
 - “没有宿主会话，用这个 token 创建”

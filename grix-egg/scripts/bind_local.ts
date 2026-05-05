@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import YAML from "yaml";
 
 type ProfileMode = "create" | "reuse" | "create-or-reuse";
 
@@ -219,6 +220,67 @@ function resolveManagementPolicy(profileExists: boolean, isMain: boolean | null)
 }
 
 const LLM_KEY_PATTERN = /^(?:.*_)?(?:API_KEY|BASE_URL|MODEL|URL)$/;
+const LLM_CONFIG_KEYS = [
+  "model",
+  "custom_providers",
+  "providers",
+  "fallback_providers",
+  "smart_model_routing",
+  "auxiliary",
+] as const;
+
+function readYamlObject(configPath: string): Record<string, unknown> {
+  if (!fs.existsSync(configPath)) return {};
+  const raw = fs.readFileSync(configPath, "utf8").trim();
+  if (!raw) return {};
+  const parsed = YAML.parse(raw);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+function hasMeaningfulConfigValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function inheritLlmConfig(
+  hermesHome: string,
+  targetConfigPath: string,
+  sourceProfileName: string | null,
+): string[] {
+  const candidates: string[] = [];
+  if (sourceProfileName && sourceProfileName !== "default") {
+    candidates.push(path.join(hermesHome, "profiles", sourceProfileName, "config.yaml"));
+  }
+  candidates.push(path.join(hermesHome, "config.yaml"));
+
+  let sourceConfig: Record<string, unknown> = {};
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    sourceConfig = readYamlObject(candidate);
+    if (Object.keys(sourceConfig).length > 0) break;
+  }
+  if (Object.keys(sourceConfig).length === 0) return [];
+
+  const targetConfig = readYamlObject(targetConfigPath);
+  const inheritedKeys: string[] = [];
+  for (const key of LLM_CONFIG_KEYS) {
+    const sourceValue = sourceConfig[key];
+    if (!hasMeaningfulConfigValue(sourceValue)) continue;
+    if (hasMeaningfulConfigValue(targetConfig[key])) continue;
+    targetConfig[key] = sourceValue;
+    inheritedKeys.push(key);
+  }
+  if (inheritedKeys.length === 0) return [];
+
+  ensureDir(path.dirname(targetConfigPath));
+  fs.writeFileSync(targetConfigPath, YAML.stringify(targetConfig), "utf8");
+  return inheritedKeys;
+}
 
 function inheritLlmKeys(hermesHome: string, targetEnvPath: string, sourceProfileName: string | null): string[] {
   const candidates: string[] = [];
@@ -621,20 +683,32 @@ function main(): number {
       envResult = applyEnvChanges(plan.env_path, plan.env_updates, new Set(plan.env_removals));
 
       const inheritSource = cleanText(flags.inheritKeys);
-      if (inheritSource === "true" || inheritSource === "global") {
-        const inheritedKeys = inheritLlmKeys(commandEnv.HERMES_HOME || "", plan.env_path, null);
-        if (inheritedKeys.length > 0) {
+      if (inheritSource) {
+        const inheritProfileName = inheritSource === "true" || inheritSource === "global"
+          ? null
+          : inheritSource;
+        const inheritSourceLabel = inheritProfileName || "global";
+        const inheritedConfigKeys = inheritLlmConfig(
+          commandEnv.HERMES_HOME || "",
+          plan.config_path,
+          inheritProfileName,
+        );
+        if (inheritedConfigKeys.length > 0) {
           commandResults.push({
-            cmd: ["inherit-llm-keys", "--source", "global"],
-            stdout: `inherited: ${inheritedKeys.join(", ")}`,
+            cmd: ["inherit-llm-config", "--source", inheritSourceLabel],
+            stdout: `inherited: ${inheritedConfigKeys.join(", ")}`,
             stderr: "",
           });
         }
-      } else if (inheritSource) {
-        const inheritedKeys = inheritLlmKeys(commandEnv.HERMES_HOME || "", plan.env_path, inheritSource);
+
+        const inheritedKeys = inheritLlmKeys(
+          commandEnv.HERMES_HOME || "",
+          plan.env_path,
+          inheritProfileName,
+        );
         if (inheritedKeys.length > 0) {
           commandResults.push({
-            cmd: ["inherit-llm-keys", "--source", inheritSource],
+            cmd: ["inherit-llm-keys", "--source", inheritSourceLabel],
             stdout: `inherited: ${inheritedKeys.join(", ")}`,
             stderr: "",
           });

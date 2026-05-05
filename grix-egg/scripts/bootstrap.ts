@@ -72,10 +72,24 @@ function slugifyProfileCandidate(value: string): string {
     .slice(0, 64);
 }
 
+function resolveProfileNameSuffix(value: string): string {
+  const normalized = slugifyProfileCandidate(value);
+  return normalized === "default" ? "" : normalized;
+}
+
+function buildProfileNameWithSuffix(profileNameSuffix: string): string {
+  const suffix = resolveProfileNameSuffix(profileNameSuffix);
+  if (!suffix) return "";
+  const base = "egg";
+  const maxSuffixLength = Math.max(0, 64 - base.length - 1);
+  const trimmedSuffix = suffix.slice(0, maxSuffixLength).replace(/-+$/, "");
+  return trimmedSuffix ? `${base}-${trimmedSuffix}` : base;
+}
+
 function resolveBootstrapProfileName(
   explicitProfileName: string,
   agentName: string,
-  installId: string,
+  profileNameSuffix: string,
 ): string {
   const requested = cleanText(explicitProfileName);
   if (requested) return requested;
@@ -83,10 +97,22 @@ function resolveBootstrapProfileName(
   const requestedAgentName = cleanText(agentName);
   if (isValidProfileName(requestedAgentName)) return requestedAgentName;
 
-  const derived = slugifyProfileCandidate(installId);
-  if (derived && derived !== "default" && isValidProfileName(derived)) return derived;
+  const requestedProfileSuffix = cleanText(profileNameSuffix);
+  if (requestedProfileSuffix) {
+    return buildProfileNameWithSuffix(requestedProfileSuffix);
+  }
+  return "";
+}
 
-  return generateInstallId();
+function validateProfileNameSuffix(profileNameSuffix: string): void {
+  const requested = cleanText(profileNameSuffix);
+  if (!requested) return;
+  const normalized = resolveProfileNameSuffix(requested);
+  if (!normalized) {
+    throw new Error(
+      "Invalid --profile-name-suffix: must contain at least one ASCII letter or number after normalization.",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +157,7 @@ interface StateFile {
 interface Flags {
   installId: string;
   agentName: string;
+  profileNameSuffix: string;
   statusTarget: string;
   soulContent: string;
   soulFile: string;
@@ -348,6 +375,7 @@ function parseArgs(argv: string[]): Flags {
   const flags: Flags = {
     installId: "",
     agentName: "",
+    profileNameSuffix: "",
     statusTarget: "",
     soulContent: "",
     soulFile: "",
@@ -389,6 +417,7 @@ function parseArgs(argv: string[]): Flags {
     const next = argv[i + 1];
     if (token === "--install-id" && next !== undefined) { flags.installId = next; i += 1; continue; }
     if (token === "--agent-name" && next !== undefined) { flags.agentName = next; i += 1; continue; }
+    if (token === "--profile-name-suffix" && next !== undefined) { flags.profileNameSuffix = next; i += 1; continue; }
     if (token === "--status-target" && next !== undefined) { flags.statusTarget = next; i += 1; continue; }
     if (token === "--soul-content" && next !== undefined) { flags.soulContent = next; i += 1; continue; }
     if (token === "--soul-file" && next !== undefined) { flags.soulFile = next; i += 1; continue; }
@@ -1476,6 +1505,7 @@ function buildResumeCommand(flags: Flags): string {
   parts.push("--agent-name", flags.agentName);
   if (flags.route) parts.push("--route", flags.route);
   if (flags.profileName) parts.push("--profile-name", flags.profileName);
+  else if (flags.profileNameSuffix) parts.push("--profile-name-suffix", flags.profileNameSuffix);
   if (flags.soulFile) parts.push("--soul-file", flags.soulFile);
   if (flags.soulContent) parts.push("--soul-content", `'${flags.soulContent.slice(0, 30)}...'`);
   if (flags.statusTarget) parts.push("--status-target", flags.statusTarget);
@@ -1504,11 +1534,24 @@ async function main(): Promise<number> {
     process.stderr.write("Missing required flag for resume: --install-id\n");
     return 1;
   }
+  try {
+    validateProfileNameSuffix(flags.profileNameSuffix);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    return 1;
+  }
+  if (!requestedProfileName && !isValidProfileName(cleanText(flags.agentName)) && !cleanText(flags.profileNameSuffix)) {
+    process.stderr.write(
+      "Non-ASCII or non-profile-safe --agent-name requires --profile-name-suffix or an explicit --profile-name\n",
+    );
+    return 1;
+  }
   flags.installId = cleanText(flags.installId) || generateInstallId();
   flags.profileName = resolveBootstrapProfileName(
     flags.profileName,
     flags.agentName,
-    flags.installId,
+    flags.profileNameSuffix,
   );
   try {
     validateProfileName(flags.profileName);

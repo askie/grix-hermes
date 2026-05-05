@@ -91,6 +91,7 @@ describe("grix-egg bootstrap", () => {
     const result = spawnSync(process.execPath, [
       path.join(root, "grix-egg", "scripts", "bootstrap.js"),
       "--agent-name", "雪碧",
+      "--profile-name-suffix", "xuebi",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
       "--json",
@@ -115,7 +116,7 @@ describe("grix-egg bootstrap", () => {
     };
     assert.match(output.install_id, /^egg-[0-9a-f]{8}$/);
     assert.equal(output.agent_name, "雪碧");
-    assert.match(output.profile_name, /^egg-[a-z0-9_-]+$/);
+    assert.equal(output.profile_name, "egg-xuebi");
     assert.equal(output.path, "host");
 
     const statePath = path.join(hermesHome, "tmp", `grix-egg-${output.install_id}.json`);
@@ -128,6 +129,74 @@ describe("grix-egg bootstrap", () => {
     assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@agent-target probe");
     const queryArgs = JSON.parse(fs.readFileSync(path.join(tmp, "query-args.json"), "utf8")) as string[];
     assert.equal(queryArgs[queryArgs.indexOf("--action") + 1], "message_history");
+  });
+
+  it("normalizes the requested English suffix when auto-generating a profile name for a non-ASCII agent name", () => {
+    const tmp = makeTempDir("grix-egg-suffix-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--agent-name", "红色",
+      "--profile-name-suffix", "Hong Se",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        FAKE_ACCEPTANCE_SENDER: "agent-target",
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      install_id: string;
+      profile_name: string;
+    };
+    assert.match(output.install_id, /^egg-[0-9a-f]{8}$/);
+    assert.equal(output.profile_name, "egg-hong-se");
+
+    const bindArgs = JSON.parse(fs.readFileSync(path.join(tmp, "bind-args.json"), "utf8")) as string[];
+    assert.equal(bindArgs[bindArgs.indexOf("--profile-name") + 1], output.profile_name);
+  });
+
+  it("fails fast when a non-ASCII agent name omits both profile-name and profile-name-suffix", () => {
+    const tmp = makeTempDir("grix-egg-missing-suffix-");
+    const hermesHome = path.join(tmp, "hermes");
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--agent-name", "红色",
+      "--hermes-home", hermesHome,
+      "--json",
+    ], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /requires --profile-name-suffix or an explicit --profile-name/);
+  });
+
+  it("rejects a profile-name suffix that cannot be normalized to ASCII", () => {
+    const tmp = makeTempDir("grix-egg-bad-suffix-");
+    const hermesHome = path.join(tmp, "hermes");
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--agent-name", "红色",
+      "--profile-name-suffix", "红色",
+      "--hermes-home", hermesHome,
+      "--json",
+    ], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Invalid --profile-name-suffix/);
   });
 
   it("incubates an empty agent with only install id and agent name", () => {
@@ -740,6 +809,101 @@ if (args[0] === "profile" && args[1] === "create") {
     assert.equal(modeOf(envPath), 0o600);
     assert.match(fs.readFileSync(envPath, "utf8"), /GRIX_API_KEY=ak_123_BINDSECRET/);
     assert.match(result.stdout, /"GRIX_API_KEY":\s*"ak_\*\*\*"/);
+  });
+
+  it("inherits source model config into the bound profile when inherit-keys is enabled", () => {
+    const tmp = makeTempDir("grix-bind-model-");
+    const hermesHome = path.join(tmp, "hermes");
+    const installDir = path.join(tmp, "bundle");
+    for (const filePath of [
+      "bin/grix-hermes.js",
+      "lib/manifest.js",
+      "shared/cli/grix-hermes.js",
+      "grix-admin/SKILL.md",
+      "grix-egg/SKILL.md",
+    ]) {
+      const absolute = path.join(installDir, filePath);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "");
+    }
+    fs.mkdirSync(hermesHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(hermesHome, "config.yaml"),
+      [
+        "model:",
+        "  default: gpt-5.4",
+        "  provider: custom:selfopenai",
+        "  base_url: http://127.0.0.1:18787/v1",
+        "providers:",
+        "  selfopenai:",
+        "    api: http://127.0.0.1:18787/v1",
+        "    key_env: SELFOPENAI_API_KEY",
+        "    default_model: gpt-5.4",
+        "fallback_providers:",
+        "  - provider: custom",
+        "    model: deepseek-v4-flash",
+        "custom_providers:",
+        "  - name: deepseek-openai",
+        "    model: deepseek-v4-flash",
+        "smart_model_routing:",
+        "  summary_model: google/gemini-3-flash-preview",
+        "auxiliary:",
+        "  cheap_model:",
+        "    provider: auto",
+        "    model: ''",
+        "",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(hermesHome, ".env"),
+      [
+        "SELFOPENAI_API_KEY=secret",
+        "DEEPSEEK_API_KEY=deepseek-secret",
+        "",
+      ].join("\n"),
+    );
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const args = process.argv.slice(2);
+if (args[0] === "profile" && args[1] === "create") {
+  fs.mkdirSync(path.join(process.env.HERMES_HOME, "profiles", args[2]), { recursive: true });
+  process.stdout.write("created");
+} else {
+  process.stderr.write("unexpected hermes args: " + args.join(" "));
+  process.exit(9);
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bind_local.js"),
+      "--agent-name", "modelagent",
+      "--agent-id", "agent-model",
+      "--api-endpoint", "wss://model-endpoint",
+      "--api-key", "ak_123_MODELSECRET",
+      "--profile-name", "modelagent",
+      "--install-dir", installDir,
+      "--hermes", fakeHermes,
+      "--inherit-keys", "global",
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, HERMES_HOME: hermesHome },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const profileDir = path.join(hermesHome, "profiles", "modelagent");
+    const configText = fs.readFileSync(path.join(profileDir, "config.yaml"), "utf8");
+    const envText = fs.readFileSync(path.join(profileDir, ".env"), "utf8");
+    assert.match(configText, /provider: custom:selfopenai/);
+    assert.match(configText, /providers:\n  selfopenai:/);
+    assert.match(configText, /fallback_providers:/);
+    assert.match(configText, /custom_providers:/);
+    assert.match(configText, /smart_model_routing:/);
+    assert.match(configText, /auxiliary:/);
+    assert.match(configText, /channels:\n  grix:\n    wsUrl: wss:\/\/model-endpoint/);
+    assert.match(envText, /SELFOPENAI_API_KEY=secret/);
+    assert.match(envText, /DEEPSEEK_API_KEY=deepseek-secret/);
   });
 
   it("creates blank persona files and does not clone the source profile by default", () => {
