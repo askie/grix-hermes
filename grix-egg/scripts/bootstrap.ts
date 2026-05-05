@@ -135,6 +135,9 @@ interface Flags {
   soulContent: string;
   soulFile: string;
   accessToken: string;
+  account: string;
+  email: string;
+  password: string;
   baseUrl: string;
   avatarUrl: string;
   categoryName: string;
@@ -349,6 +352,9 @@ function parseArgs(argv: string[]): Flags {
     soulContent: "",
     soulFile: "",
     accessToken: "",
+    account: "",
+    email: "",
+    password: "",
     baseUrl: "",
     avatarUrl: "",
     categoryName: "",
@@ -359,8 +365,8 @@ function parseArgs(argv: string[]): Flags {
     hermesHome: "",
     hermes: "hermes",
     node: "node",
-    probeMessage: "ping",
-    expectedSubstring: "pong",
+    probeMessage: "probe",
+    expectedSubstring: "identity-ok",
     memberIds: "",
     memberTypes: "",
     agentId: "",
@@ -387,6 +393,9 @@ function parseArgs(argv: string[]): Flags {
     if (token === "--soul-content" && next !== undefined) { flags.soulContent = next; i += 1; continue; }
     if (token === "--soul-file" && next !== undefined) { flags.soulFile = next; i += 1; continue; }
     if (token === "--access-token" && next !== undefined) { flags.accessToken = next; i += 1; continue; }
+    if (token === "--account" && next !== undefined) { flags.account = next; i += 1; continue; }
+    if (token === "--email" && next !== undefined) { flags.email = next; i += 1; continue; }
+    if (token === "--password" && next !== undefined) { flags.password = next; i += 1; continue; }
     if (token === "--base-url" && next !== undefined) { flags.baseUrl = next; i += 1; continue; }
     if (token === "--avatar-url" && next !== undefined) { flags.avatarUrl = next; i += 1; continue; }
     if (token === "--category-name" && next !== undefined) { flags.categoryName = next; i += 1; continue; }
@@ -478,6 +487,7 @@ interface ScriptPaths {
   adminScript: string;
   bindScript: string;
   createAndBindScript: string;
+  grixAuthScript: string;
   groupScript: string;
   installBin: string;
   queryScript: string;
@@ -490,6 +500,7 @@ function resolveScripts(root: string): ScriptPaths {
     adminScript: path.join(root, "grix-admin", "scripts", "admin.js"),
     bindScript: path.join(root, "grix-egg", "scripts", "bind_local.js"),
     createAndBindScript: path.join(root, "grix-register", "scripts", "create_api_agent_and_bind.js"),
+    grixAuthScript: path.join(root, "grix-register", "scripts", "grix_auth.js"),
     groupScript: path.join(root, "grix-group", "scripts", "group.js"),
     installBin: path.join(root, "bin", "grix-hermes.js"),
     queryScript: path.join(root, "grix-query", "scripts", "query.js"),
@@ -553,19 +564,21 @@ function stepDetect(
     return;
   }
 
-  if (cleanText(flags.accessToken)) {
+  if (cleanText(flags.accessToken) || cleanText(flags.email) || cleanText(flags.account)) {
     setStatePath(state, "http");
     markStepDone(state, "detect", {
       path: "http",
       transport: "http_login_token",
-      token_source: "cli_flag_access_token",
+      token_source: cleanText(flags.accessToken)
+        ? "cli_flag_access_token"
+        : "login_with_account_password",
     });
     return;
   }
 
   throw new BootstrapError(
     "detect", 1,
-    "未检测到可复用的 Grix 宿主会话凭证，且也没有可用于 HTTP fallback 的 access token",
+    "未检测到可复用的 Grix 宿主会话凭证，且也没有可用于 HTTP fallback 的 access token / 登录账号信息",
     "请先检查当前 Hermes 会话是否已连接 Grix；如果宿主链路不可用，则向用户获取邮箱/账号和密码，通过 grix-register login/register 换取 access token 后再重试；或显式提供已有 agent 凭证走 --route existing。",
     formatWsCredentialDiagnostics(wsDiagnostics),
   );
@@ -828,10 +841,43 @@ function stepCreateHttp(
 ): void {
   const installDir = cleanText(flags.installDir) || defaultInstallDir(hermesHome);
   const profileName = cleanText(flags.profileName) || flags.agentName;
+  let accessToken = cleanText(flags.accessToken);
+  if (!accessToken) {
+    const account = cleanText(flags.email) || cleanText(flags.account);
+    const password = cleanText(flags.password);
+    if (!account || !password) {
+      throw new BootstrapError(
+        "create", 3,
+        "HTTP fallback 缺少 access token，且也没有可用于登录的账号/邮箱和密码",
+        "请先向用户获取邮箱/账号和密码，通过 grix-register login 换取 access token；如用户还没有账号，则先走 send-email-code/register/login，再重试。",
+        `missing HTTP auth inputs: access_token=${accessToken ? "present" : "missing"}, account=${account ? "present" : "missing"}, password=${password ? "present" : "missing"}`,
+      );
+    }
+    const loginCmd = [
+      flags.node,
+      scripts.grixAuthScript,
+      "login",
+      "--password", password,
+    ];
+    if (cleanText(flags.email)) loginCmd.push("--email", cleanText(flags.email));
+    else loginCmd.push("--account", cleanText(flags.account));
+    appendTextFlag(loginCmd, "--base-url", flags.baseUrl);
+    const loginResult = runCommand(loginCmd, { env });
+    const loginPayload = parseJsonOutput(loginResult);
+    accessToken = cleanText(loginPayload.access_token);
+    if (!accessToken) {
+      throw new BootstrapError(
+        "create", 3,
+        "grix-register login 未返回 access token，无法继续 HTTP fallback 创建 agent",
+        "检查邮箱/账号密码是否正确，并确认 grix-register login 对当前 Grix 环境可用。",
+        loginResult.stderr || loginResult.stdout,
+      );
+    }
+  }
   const cmd = [
     flags.node,
     scripts.createAndBindScript,
-    "--access-token", flags.accessToken,
+    "--access-token", accessToken,
     "--agent-name", flags.agentName,
     "--profile-mode", "create-or-reuse",
     "--install-dir", installDir,
@@ -845,14 +891,6 @@ function stepCreateHttp(
     "--inherit-keys", "global",
     "--json",
   ];
-  if (!cleanText(flags.accessToken)) {
-    throw new BootstrapError(
-      "create", 3,
-      "HTTP fallback 缺少 access token，无法继续创建 agent",
-      "请先向用户获取邮箱/账号和密码，通过 grix-register login 换取 access token；如用户还没有账号，则先走 send-email-code/register/login，再重试。",
-      "missing --access-token for HTTP fallback",
-    );
-  }
   appendTextFlag(cmd, "--base-url", flags.baseUrl);
   appendTextFlag(cmd, "--avatar-url", flags.avatarUrl);
 
@@ -882,6 +920,10 @@ function stepCreateHttp(
     api_endpoint: apiEndpoint,
     api_key: apiKey ? "ak_***" : "",
     profile_name: resolvedProfileName,
+    transport: "http_login_token",
+    token_source: cleanText(flags.accessToken)
+      ? "cli_flag_access_token"
+      : "login_with_account_password",
   });
 }
 

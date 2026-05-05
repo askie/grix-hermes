@@ -34,7 +34,10 @@ node scripts/bootstrap.js ... --json
 1. `detect`
    - `--route existing` 时直接走已有凭证绑定
    - 否则先尝试复用当前 Hermes / Grix 宿主会话
-   - 宿主会话不存在时，若提供 `--access-token`，再走 HTTP 创建
+   - 宿主会话不存在时：
+     - 若已提供 `--access-token`，直接走 HTTP 创建
+     - 若只拿到邮箱/账号和密码，先通过 `grix-register login` 登录换取 token，再走 HTTP 创建
+     - 若用户还没有账号，则先走 `send-email-code -> register -> login`，再继续创建
 2. `install`
    - 安装或刷新本地 `grix-hermes` bundle
 3. `create`
@@ -49,8 +52,10 @@ node scripts/bootstrap.js ... --json
    - 启动并确认 Hermes gateway 在线
 7. `accept`
    - 必做
+   - 程序会先创建测试群，并以该测试群 `session_id` 作为唯一验收会话
    - 程序发送验收消息时会自动在消息前拼接 `@<agent_id>` mention
    - Grix mention 格式是 `@agent_id`（不要用方括号 `@[agent_id]`）
+   - 验收查询动作固定使用 `message_history`
    - 默认验收参数：
      - `--probe-message probe`
      - `--expected-substring identity-ok`
@@ -89,7 +94,11 @@ node scripts/bootstrap.js ... --json
 可选环境参数：
 
 - `--access-token`
-  - 只有当前 Hermes / Grix 宿主会话不可复用时才需要
+  - 当前 Hermes / Grix 宿主会话不可复用时可直接使用
+- `--email` / `--account`
+- `--password`
+  - 当没有 `--access-token` 时，用于先经 `grix-register login` 获取 token
+  - 若用户还没有账号，则应先获取邮箱、密码、验证码，走 `send-email-code/register/login`
 - `--profile-name`
   - 只有调用方想固定本地 profile 名时才需要
   - 省略时程序自动处理：
@@ -172,6 +181,10 @@ AI 可以把自然语言转换为标准参数，例如：
   - 其余保持默认
 - “没有宿主会话，用这个 token 创建”
   - 在上面基础上补 `--access-token`
+- “没有宿主会话，用户只给了邮箱/账号和密码”
+  - 在上面基础上补 `--email` 或 `--account`
+  - 再补 `--password`
+  - 程序会先登录拿 token，再继续 HTTP fallback 创建
 - “把这个已有 agent 接到本地”
   - `--route existing`
   - `--bind-json` 或显式凭证
@@ -282,6 +295,7 @@ node scripts/bootstrap.js \
 | 故障表现 | 最可能根因 | 排查方向 |
 |---|---|---|
 | accept 阶段超时，目标 agent 无回复 | mention 格式错误或 agent 未上线 | 程序已自动拼接 `@agent_id`，不要在 `--probe-message` 里手动加 mention |
+| accept 阶段拿到了旧消息误判成功 | 查询范围或匹配条件不对 | 验收必须基于测试群 `session_id` 调 `message_history`，并只接受 probe 发出后的目标 agent 回复 |
 | gateway 日志出现 `No messaging platforms enabled` | hermes-home 或 profile 不一致 | 检查 bootstrap 和 gateway 是否用了同一个 `--hermes-home`；检查 profile 内是否有 Grix 配置 |
 | `MODULE_NOT_FOUND` 找不到脚本 | 工作目录不对 | 参照第 6 节调整脚本路径前缀 |
 | bind 成功但 gateway 找不到 Grix 配置 | bind 写入了错误的 hermes-home | 显式传 `--hermes-home`，不要依赖默认值 |

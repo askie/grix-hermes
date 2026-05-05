@@ -43,6 +43,9 @@ if (script.endsWith("bin/grix-hermes.js")) {
 } else if (script.endsWith("create_api_agent_and_bind.js")) {
   save("http-create-args.json", args);
   out({ bind_result: { agent_id: "http-agent", agent_name: "httpagent", profile_name: "httpagent", api_endpoint: "wss://http-target", api_key: "ak_123_HTTPSECRET" } });
+} else if (script.endsWith("grix_auth.js")) {
+  save("http-login-args.json", args);
+  out({ ok: true, action: "login", access_token: "token-from-login" });
 } else if (script.endsWith("start_gateway.js")) {
   out({ ok: true, start_mode: "service_start" });
 } else if (script.endsWith("group.js")) {
@@ -50,7 +53,7 @@ if (script.endsWith("bin/grix-hermes.js")) {
   out({ data: { session_id: "session-accept" } });
 } else if (script.endsWith("send.js")) {
   const message = arg("--message");
-  if (message.includes("ping")) {
+  if (message.includes("probe") || message.includes("ping")) {
     save("probe-message.txt", message);
     out({ ok: true, ack: { message_id: "100" } });
   }
@@ -62,12 +65,12 @@ if (script.endsWith("bin/grix-hermes.js")) {
   out({
     data: {
       messages: falseOnly ? [
-        { id: "99", sender_id: acceptedSender, content: "pong before ping" },
-        { id: "101", sender_id: "other-agent", content: "pong wrong sender" }
+        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
+        { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" }
       ] : [
-        { id: "99", sender_id: acceptedSender, content: "pong before ping" },
-        { id: "101", sender_id: "other-agent", content: "pong wrong sender" },
-        { id: "102", sender_id: acceptedSender, content: "pong after ping" }
+        { id: "99", sender_id: acceptedSender, content: "identity-ok before probe" },
+        { id: "101", sender_id: "other-agent", content: "identity-ok wrong sender" },
+        { id: "102", sender_id: acceptedSender, content: "identity-ok after probe" }
       ]
     }
   });
@@ -122,7 +125,7 @@ describe("grix-egg bootstrap", () => {
     assert.equal(bindArgs.includes("--install-id"), false);
     assert.equal(bindArgs[bindArgs.indexOf("--profile-name") + 1], output.profile_name);
     assert.equal(bindArgs[bindArgs.indexOf("--hermes-home") + 1], hermesHome);
-    assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@agent-target ping");
+    assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@agent-target probe");
     const queryArgs = JSON.parse(fs.readFileSync(path.join(tmp, "query-args.json"), "utf8")) as string[];
     assert.equal(queryArgs[queryArgs.indexOf("--action") + 1], "message_history");
   });
@@ -173,8 +176,8 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "ping",
-      "--expected-substring", "pong",
+      "--probe-message", "probe",
+      "--expected-substring", "identity-ok",
       "--member-ids", "user-1",
       "--accept-timeout-seconds", "1",
       "--accept-poll-interval-seconds", "0.1",
@@ -212,7 +215,7 @@ describe("grix-egg bootstrap", () => {
     };
     assert.equal(state.steps.accept.result.reply_msg_id, "102");
     assert.equal(state.steps.accept.result.reply_sender_id, "agent-target");
-    assert.equal(state.steps.accept.result.reply_content, "pong after ping");
+    assert.equal(state.steps.accept.result.reply_content, "identity-ok after probe");
 
     const bindInput = fs.readFileSync(path.join(tmp, "bind-input.json"), "utf8");
     assert.ok(bindInput.includes("ak_123_SECRET"));
@@ -262,8 +265,8 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "ping",
-      "--expected-substring", "pong",
+      "--probe-message", "probe",
+      "--expected-substring", "identity-ok",
       "--accept-timeout-seconds", "0.2",
       "--accept-poll-interval-seconds", "0.1",
       "--json",
@@ -322,6 +325,51 @@ describe("grix-egg bootstrap", () => {
     assert.equal(state.steps.detect.result.path, "http");
     assert.equal(state.steps.create.result.path, "http");
     assert.equal(state.steps.bind.status, "done");
+  });
+
+  it("logs in with account/password before HTTP fallback when no access token is provided", () => {
+    const tmp = makeTempDir("grix-egg-http-login-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-http-login",
+      "--agent-name", "httpagent",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--email", "user@example.com",
+      "--password", "secret",
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        FAKE_ACCEPTANCE_SENDER: "http-agent",
+        GRIX_ENDPOINT: "",
+        GRIX_AGENT_ID: "",
+        GRIX_API_KEY: "",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const loginArgs = JSON.parse(fs.readFileSync(path.join(tmp, "http-login-args.json"), "utf8")) as string[];
+    assert.equal(loginArgs[0], "login");
+    assert.equal(loginArgs[loginArgs.indexOf("--email") + 1], "user@example.com");
+    assert.equal(loginArgs[loginArgs.indexOf("--password") + 1], "secret");
+
+    const httpArgs = JSON.parse(fs.readFileSync(path.join(tmp, "http-create-args.json"), "utf8")) as string[];
+    assert.equal(httpArgs[httpArgs.indexOf("--access-token") + 1], "token-from-login");
+
+    const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-http-login.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+      steps: {
+        detect: { result: Record<string, string> };
+        create: { result: Record<string, string> };
+      };
+    };
+    assert.equal(state.steps.detect.result.token_source, "login_with_account_password");
+    assert.equal(state.steps.create.result.token_source, "login_with_account_password");
   });
 
   it("fails fast when host Grix create capability is unsupported instead of silently falling back to HTTP", () => {
