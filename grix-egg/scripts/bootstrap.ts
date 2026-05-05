@@ -1175,9 +1175,14 @@ async function stepAccept(
 // ---------------------------------------------------------------------------
 
 function buildAcceptanceProbeMessage(targetAgentId: string, probeMessage: string): string {
-  const mention = `@[${targetAgentId}]`;
+  const mention = `@${targetAgentId}`;
+  const bracketMention = `@[${targetAgentId}]`;
   const message = cleanText(probeMessage);
-  return message.startsWith(mention) ? message : `${mention} ${message}`.trim();
+  if (message.startsWith(mention)) return message;
+  if (message.startsWith(bracketMention)) {
+    return `${mention}${message.slice(bracketMention.length)}`.trim();
+  }
+  return `${mention} ${message}`.trim();
 }
 
 function extractNested(payload: Record<string, unknown>, key: string): Record<string, unknown> {
