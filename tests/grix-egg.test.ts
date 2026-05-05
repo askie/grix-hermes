@@ -122,7 +122,7 @@ describe("grix-egg bootstrap", () => {
     assert.equal(bindArgs.includes("--install-id"), false);
     assert.equal(bindArgs[bindArgs.indexOf("--profile-name") + 1], output.profile_name);
     assert.equal(bindArgs[bindArgs.indexOf("--hermes-home") + 1], hermesHome);
-    assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@[agent-target] ping");
+    assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@agent-target ping");
     const queryArgs = JSON.parse(fs.readFileSync(path.join(tmp, "query-args.json"), "utf8")) as string[];
     assert.equal(queryArgs[queryArgs.indexOf("--action") + 1], "message_history");
   });
