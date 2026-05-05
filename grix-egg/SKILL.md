@@ -52,11 +52,8 @@ node scripts/bootstrap.js ... --json
    - 程序发送验收消息时会自动在消息前拼接 `@<agent_id>` mention
    - Grix mention 格式是 `@agent_id`（不要用方括号 `@[agent_id]`）
    - 默认验收参数：
-     - `--probe-message ping`
-     - `--expected-substring pong`
-   - 程序发送验收消息时会自动加上目标 agent mention：
-     - `@[agent_id] ping`
-   - 只有目标 agent 在 probe 之后回复且内容包含 `pong`，才视为验收通过
+     - `--probe-message probe`
+     - `--expected-substring identity-ok`
 8. 输出 JSON
    - 成功：stdout
    - 失败：stderr，并带 `step / reason / suggestion / state_file / resume_command`
