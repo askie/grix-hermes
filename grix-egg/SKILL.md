@@ -49,6 +49,8 @@ node scripts/bootstrap.js ... --json
    - 启动并确认 Hermes gateway 在线
 7. `accept`
    - 必做
+   - 程序发送验收消息时会自动在消息前拼接 `@<agent_id>` mention
+   - Grix mention 格式是 `@agent_id`（不要用方括号 `@[agent_id]`）
    - 默认验收参数：
      - `--probe-message ping`
      - `--expected-substring pong`
@@ -212,55 +214,84 @@ AI 可以把自然语言转换为标准参数，例如：
 
 除此之外，默认都应直接调用程序，不要把中间过程变成人工接力。
 
-## 6. 标准调用模板
+## 6. 执行上下文
 
-### 6.1 fresh run 最小调用
+`bootstrap.js` 的脚本路径取决于你的工作目录：
+
+| 工作目录 | 命令前缀 |
+|---|---|
+| `grix-egg/` 子目录 | `node scripts/bootstrap.js` |
+| `grix-hermes/` 仓库根目录 | `node grix-egg/scripts/bootstrap.js` |
+
+以下模板以 `grix-egg/` 子目录为基准。如果你在仓库根目录执行，把 `scripts/bootstrap.js` 替换为 `grix-egg/scripts/bootstrap.js`。
+
+**重要**：从源码执行时，必须保证 `--hermes-home` 指向正确的 Hermes 安装目录。如果省略，程序回退到默认 `~/.hermes`，可能导致 bind 写入一个 home 而 gateway 从另一个 home 启动，最终表现为 "No messaging platforms enabled"。建议显式传 `--hermes-home`。
+
+## 7. 标准调用模板
+
+### 7.1 fresh run 最小调用
 
 ```bash
 node scripts/bootstrap.js \
   --agent-name "<AGENT_NAME>" \
+  --hermes-home "<HERMES_HOME>" \
   --json
 ```
 
-### 6.2 fresh run + SOUL
+### 7.2 fresh run + SOUL
 
 ```bash
 node scripts/bootstrap.js \
   --agent-name "<AGENT_NAME>" \
+  --hermes-home "<HERMES_HOME>" \
   --soul-file "<SOUL_FILE>" \
   --json
 ```
 
-### 6.3 fresh run + HTTP token
+### 7.3 fresh run + HTTP token
 
 ```bash
 node scripts/bootstrap.js \
   --agent-name "<AGENT_NAME>" \
+  --hermes-home "<HERMES_HOME>" \
   --access-token "<ACCESS_TOKEN>" \
   --json
 ```
 
-### 6.4 existing bind
+### 7.4 existing bind
 
 ```bash
 node scripts/bootstrap.js \
   --route existing \
   --agent-name "<AGENT_NAME>" \
+  --hermes-home "<HERMES_HOME>" \
   --bind-json "<BIND_JSON_FILE>" \
   --json
 ```
 
-### 6.5 resume
+### 7.5 resume
 
 ```bash
 node scripts/bootstrap.js \
   --install-id "<INSTALL_ID>" \
   --agent-name "<AGENT_NAME>" \
+  --hermes-home "<HERMES_HOME>" \
   --resume \
   --json
 ```
 
-## 7. 调试边界
+## 8. 常见故障排查
+
+| 故障表现 | 最可能根因 | 排查方向 |
+|---|---|---|
+| accept 阶段超时，目标 agent 无回复 | mention 格式错误或 agent 未上线 | 程序已自动拼接 `@agent_id`，不要在 `--probe-message` 里手动加 mention |
+| gateway 日志出现 `No messaging platforms enabled` | hermes-home 或 profile 不一致 | 检查 bootstrap 和 gateway 是否用了同一个 `--hermes-home`；检查 profile 内是否有 Grix 配置 |
+| `MODULE_NOT_FOUND` 找不到脚本 | 工作目录不对 | 参照第 6 节调整脚本路径前缀 |
+| bind 成功但 gateway 找不到 Grix 配置 | bind 写入了错误的 hermes-home | 显式传 `--hermes-home`，不要依赖默认值 |
+
+**关键排查优先级**：看到 `No messaging platforms enabled` 时，优先检查 hermes-home / profile 是否跑偏，而不是先怀疑 agent 创建失败或网络问题。
+
+## 9. 调试边界
 
 下面这些脚本是 `bootstrap.js` 的子步骤，不是正常主入口：
 
