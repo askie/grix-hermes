@@ -62,6 +62,13 @@ node scripts/bootstrap.js ... --json
 8. 输出 JSON
    - 成功：stdout
    - 失败：stderr，并带 `step / reason / suggestion / state_file / resume_command`
+9. 当前对话回传
+   - 有可解析的当前会话目标时，程序默认走“简洁闭环”
+   - 开始时发 1 条安装进行中状态卡
+   - 创建验收群后发 1 张测试群入口卡
+   - 结束时发 1 条普通文本总结，再发 1 条最终状态卡
+   - 失败时发 1 条失败文本总结，再发 1 条失败状态卡
+   - 回传失败不会改写 create/bind/accept 的主结果，但会在 JSON 和 checkpoint 里把 `interaction_status` 标成 `degraded`
 
 ## 2. 首次入参数
 
@@ -90,6 +97,11 @@ node scripts/bootstrap.js ... --json
   - 仅在需要额外文本命中约束时提供；默认不需要
 - `--member-ids`
 - `--member-types`
+- `--install-context <FILE|->`
+  - 只用于补当前对话回传相关上下文，不替代已有业务参数
+  - 程序会优先按 `--status-target` / `--home-channel` 回传
+  - 两者都没传时，才从 install context 的 `current_chat_session_id` / `session_id` 兜底
+  - 当 `--home-channel` 缺失时，程序也会用同一个 install context 自动补 profile 里的 home channel 绑定
 
 可选环境参数：
 
@@ -197,16 +209,42 @@ AI 可以把自然语言转换为标准参数，例如：
   - `--route existing`
   - `--bind-json` 或显式凭证
 
+如果当前执行上下文已经能拿到“触发这次请求的 Grix 会话”：
+
+- 应把该 `session_id` 直接作为 `--home-channel`
+- 如果能拿到会话标题，再补 `--home-channel-name`
+- 同时把同一个 `session_id` 作为 `--status-target`
+
+如果上层没有显式把这几个参数整理出来，但已经有标准 install context：
+
+- 把 install context 通过 `--install-context <FILE|->` 交给程序
+- 程序会按 `current_chat_session_id -> session_id` 的顺序自动补当前对话回传目标和 home channel
+- `home_channel_name` 未显式给出时，程序会回退读 `main_agent.home_channel_name`
+
+推荐顺序：
+
+- 有标准 install context 时，优先只把 `--install-context` 交给程序
+- 只有 install context 不可用时，才让 AI 手动补 `--home-channel` / `--status-target`
+
+这三个值属于“从当前会话派生出来的上下文参数”，不是需要向用户额外追问的业务信息。不要因为缺这几个值就停下来问用户；拿得到就直接带上，拿不到就按默认值继续。
+
 ### 4.2 结果判读
 
 程序跑完后，AI 可以读取 JSON 结果并判断如何对用户表达：
 
 - `ok: true`
+  - 必须在当前对话再发一条自然语言结果，不要只停在工具调用记录或终端输出
+  - 优先直接使用返回里的 `summary`
   - 汇报成功
   - 告知 `agent_name`、`profile_name`
+  - 如果返回里有 `acceptance.reply_content`，把这条验收回复一起告诉用户
+  - 如果返回里有 `links.acceptance_conversation`，可以顺手附上测试群入口
+  - 看 `interaction_status` 是否为 `full`
+  - 如果是 `degraded`，说明主流程成功但当前对话回传不完整，需要把 `delivery` 里的失败点说清楚
   - 需要恢复任务时再补充 `install_id`
 - `ok: false`
   - 读取 `step / reason / suggestion`
+  - 同时看 `interaction_status` / `delivery`，判断当前对话回传本身是否也降级
   - 只围绕程序明确缺失的外部条件继续追问
 
 ### 4.3 语义验收

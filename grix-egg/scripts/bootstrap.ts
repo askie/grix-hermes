@@ -12,6 +12,7 @@ import {
   hasWsCredentials,
 } from "../../shared/cli/config.js";
 import { buildConversationCard, buildEggStatusCard } from "../../shared/cli/card-links.js";
+import type { InstallContext } from "../../shared/types/install-context.js";
 
 // ---------------------------------------------------------------------------
 // Section 1: Utility functions
@@ -122,6 +123,20 @@ function validateProfileNameSuffix(profileNameSuffix: string): void {
 const STEP_NAMES = ["detect", "install", "create", "bind", "soul", "gateway", "accept"] as const;
 type StepName = (typeof STEP_NAMES)[number];
 type CreatePath = "host" | "http" | "existing" | "";
+type InteractionStatus = "full" | "degraded" | "none";
+type DeliveryTargetSource =
+  | "status_target"
+  | "home_channel"
+  | "install_context.current_chat_session_id"
+  | "install_context.session_id"
+  | "none";
+type DeliveryMessageKind =
+  | "running_card"
+  | "acceptance_card"
+  | "final_text"
+  | "final_card"
+  | "failure_text"
+  | "failure_card";
 
 function setStatePath(state: StateFile, pathUsed: CreatePath): void {
   state.path = pathUsed;
@@ -141,8 +156,30 @@ interface StepState {
   error: string | null;
 }
 
+interface DeliveryAttemptState {
+  kind: DeliveryMessageKind;
+  at: string;
+  ok: boolean;
+  target: string;
+  target_source: DeliveryTargetSource;
+  message_preview: string;
+  ack: Record<string, unknown> | null;
+  error: string | null;
+}
+
+interface DeliveryState {
+  target: string;
+  target_source: DeliveryTargetSource;
+  attempts: DeliveryAttemptState[];
+}
+
+interface ResolvedDeliveryTarget {
+  target: string;
+  source: DeliveryTargetSource;
+}
+
 interface StateFile {
-  version: 1;
+  version: 2;
   install_id: string;
   agent_name: string;
   profile_name: string;
@@ -151,11 +188,14 @@ interface StateFile {
   started_at: string;
   updated_at: string;
   completed_at: string | null;
+  interaction_status: InteractionStatus;
+  delivery: DeliveryState;
   steps: Record<StepName, StepState>;
 }
 
 interface Flags {
   installId: string;
+  installContext: string;
   agentName: string;
   profileNameSuffix: string;
   statusTarget: string;
@@ -267,6 +307,21 @@ function cleanList(value: unknown): string[] {
   return cleanText(value).split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function truncateText(value: unknown, maxLength = 160): string {
+  const normalized = cleanText(value).replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+let stdinCache: string | null = null;
+
+function readStdinText(): string {
+  if (stdinCache === null) {
+    stdinCache = fs.readFileSync(0, "utf8");
+  }
+  return stdinCache;
+}
+
 function ensurePrivateDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
   try {
@@ -308,6 +363,60 @@ function redactStateValue(value: unknown): unknown {
   return result;
 }
 
+function extractInstallContextMainAgent(installContext: InstallContext | null): Record<string, unknown> {
+  const mainAgent = installContext?.main_agent;
+  return mainAgent && typeof mainAgent === "object" && !Array.isArray(mainAgent)
+    ? (mainAgent as Record<string, unknown>)
+    : {};
+}
+
+function loadInstallContext(rawSource: string): InstallContext | null {
+  const source = cleanText(rawSource);
+  if (!source) return null;
+  const text = source === "-"
+    ? readStdinText()
+    : fs.readFileSync(expandHome(source), "utf8");
+  const normalized = text.trim();
+  if (!normalized) {
+    throw new Error(`Install context is empty: ${source}`);
+  }
+  return JSON.parse(normalized) as InstallContext;
+}
+
+function resolveHomeChannelName(flags: Flags, installContext: InstallContext | null): string {
+  const explicit = cleanText(flags.homeChannelName);
+  if (explicit) return explicit;
+  return cleanText(extractInstallContextMainAgent(installContext).home_channel_name);
+}
+
+function resolveHomeChannel(flags: Flags, installContext: InstallContext | null): string {
+  const explicit = cleanText(flags.homeChannel);
+  if (explicit) return explicit;
+  const currentChatSessionId = cleanText(installContext?.current_chat_session_id);
+  if (currentChatSessionId) return currentChatSessionId;
+  return cleanText(installContext?.session_id);
+}
+
+function resolveDeliveryTarget(flags: Flags, installContext: InstallContext | null): ResolvedDeliveryTarget {
+  const statusTarget = cleanText(flags.statusTarget);
+  if (statusTarget) return { target: statusTarget, source: "status_target" };
+
+  const homeChannel = cleanText(flags.homeChannel);
+  if (homeChannel) return { target: homeChannel, source: "home_channel" };
+
+  const currentChatSessionId = cleanText(installContext?.current_chat_session_id);
+  if (currentChatSessionId) {
+    return { target: currentChatSessionId, source: "install_context.current_chat_session_id" };
+  }
+
+  const sessionId = cleanText(installContext?.session_id);
+  if (sessionId) {
+    return { target: sessionId, source: "install_context.session_id" };
+  }
+
+  return { target: "", source: "none" };
+}
+
 // ---------------------------------------------------------------------------
 // Section 4: State file management
 // ---------------------------------------------------------------------------
@@ -316,12 +425,123 @@ function getStateFilePath(hermesHome: string, installId: string): string {
   return path.join(hermesHome, "tmp", `grix-egg-${installId}.json`);
 }
 
-function makeFreshState(flags: Flags): StateFile {
-  const emptyStep = (): StepState => ({ status: "pending", at: null, result: null, error: null });
+function emptyStepState(): StepState {
+  return { status: "pending", at: null, result: null, error: null };
+}
+
+function buildEmptySteps(): Record<StepName, StepState> {
   const steps: Record<StepName, StepState> = {} as Record<StepName, StepState>;
-  for (const name of STEP_NAMES) steps[name] = emptyStep();
+  for (const name of STEP_NAMES) steps[name] = emptyStepState();
+  return steps;
+}
+
+function emptyDeliveryState(): DeliveryState {
   return {
-    version: 1,
+    target: "",
+    target_source: "none",
+    attempts: [],
+  };
+}
+
+function normalizeInteractionStatus(value: unknown): InteractionStatus {
+  const normalized = cleanText(value);
+  if (normalized === "full" || normalized === "degraded" || normalized === "none") {
+    return normalized;
+  }
+  return "none";
+}
+
+function normalizeCreatePath(value: unknown): CreatePath {
+  const normalized = cleanText(value);
+  if (normalized === "host" || normalized === "http" || normalized === "existing") {
+    return normalized;
+  }
+  return "";
+}
+
+function normalizeDeliveryTargetSource(value: unknown): DeliveryTargetSource {
+  const normalized = cleanText(value);
+  if (
+    normalized === "status_target" ||
+    normalized === "home_channel" ||
+    normalized === "install_context.current_chat_session_id" ||
+    normalized === "install_context.session_id" ||
+    normalized === "none"
+  ) {
+    return normalized;
+  }
+  return "none";
+}
+
+function refreshInteractionStatus(state: StateFile): void {
+  const target = cleanText(state.delivery.target);
+  if (!target) {
+    state.interaction_status = "none";
+    return;
+  }
+  if (state.delivery.attempts.some((attempt) => !attempt.ok)) {
+    state.interaction_status = "degraded";
+    return;
+  }
+  const hasSuccessFinal = ["final_text", "final_card"].every((kind) =>
+    state.delivery.attempts.some((attempt) => attempt.kind === kind && attempt.ok),
+  );
+  const hasFailureFinal = ["failure_text", "failure_card"].every((kind) =>
+    state.delivery.attempts.some((attempt) => attempt.kind === kind && attempt.ok),
+  );
+  state.interaction_status = hasSuccessFinal || hasFailureFinal ? "full" : "none";
+}
+
+function setResolvedDeliveryTarget(state: StateFile, target: ResolvedDeliveryTarget): void {
+  state.delivery.target = target.target;
+  state.delivery.target_source = target.source;
+  refreshInteractionStatus(state);
+}
+
+function normalizeDeliveryState(raw: unknown): DeliveryState {
+  const fallback = emptyDeliveryState();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+
+  const record = raw as Record<string, unknown>;
+  const attempts = Array.isArray(record.attempts)
+    ? record.attempts.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const attempt = item as Record<string, unknown>;
+        const kind = cleanText(attempt.kind) as DeliveryMessageKind;
+        const allowedKinds: DeliveryMessageKind[] = [
+          "running_card",
+          "acceptance_card",
+          "final_text",
+          "final_card",
+          "failure_text",
+          "failure_card",
+        ];
+        if (!allowedKinds.includes(kind)) return [];
+        return [{
+          kind,
+          at: cleanText(attempt.at) || isoNow(),
+          ok: Boolean(attempt.ok),
+          target: cleanText(attempt.target),
+          target_source: normalizeDeliveryTargetSource(attempt.target_source),
+          message_preview: truncateText(attempt.message_preview),
+          ack: attempt.ack && typeof attempt.ack === "object" && !Array.isArray(attempt.ack)
+            ? (attempt.ack as Record<string, unknown>)
+            : null,
+          error: cleanText(attempt.error) || null,
+        } satisfies DeliveryAttemptState];
+      })
+    : [];
+
+  return {
+    target: cleanText(record.target),
+    target_source: normalizeDeliveryTargetSource(record.target_source),
+    attempts,
+  };
+}
+
+function makeFreshState(flags: Flags): StateFile {
+  return {
+    version: 2,
     install_id: flags.installId,
     agent_name: flags.agentName,
     profile_name: flags.profileName || flags.agentName,
@@ -330,7 +550,9 @@ function makeFreshState(flags: Flags): StateFile {
     started_at: isoNow(),
     updated_at: isoNow(),
     completed_at: null,
-    steps,
+    interaction_status: "none",
+    delivery: emptyDeliveryState(),
+    steps: buildEmptySteps(),
   };
 }
 
@@ -338,7 +560,42 @@ function loadState(filePath: string): StateFile | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as StateFile;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const steps = buildEmptySteps();
+    const rawSteps = parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)
+      ? (parsed.steps as Record<string, unknown>)
+      : {};
+    for (const name of STEP_NAMES) {
+      const rawStep = rawSteps[name];
+      if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) continue;
+      const step = rawStep as Record<string, unknown>;
+      const status = cleanText(step.status);
+      steps[name] = {
+        status: status === "done" || status === "failed" || status === "skipped" ? status : "pending",
+        at: cleanText(step.at) || null,
+        result: step.result && typeof step.result === "object" && !Array.isArray(step.result)
+          ? (step.result as Record<string, unknown>)
+          : null,
+        error: cleanText(step.error) || null,
+      };
+    }
+
+    const state: StateFile = {
+      version: 2,
+      install_id: cleanText(parsed.install_id),
+      agent_name: cleanText(parsed.agent_name),
+      profile_name: cleanText(parsed.profile_name),
+      route: cleanText(parsed.route),
+      path: normalizeCreatePath(parsed.path),
+      started_at: cleanText(parsed.started_at) || isoNow(),
+      updated_at: cleanText(parsed.updated_at) || isoNow(),
+      completed_at: cleanText(parsed.completed_at) || null,
+      interaction_status: normalizeInteractionStatus(parsed.interaction_status),
+      delivery: normalizeDeliveryState(parsed.delivery),
+      steps,
+    };
+    refreshInteractionStatus(state);
+    return state;
   } catch {
     return null;
   }
@@ -374,6 +631,7 @@ function stepIsDone(state: StateFile, step: StepName): boolean {
 function parseArgs(argv: string[]): Flags {
   const flags: Flags = {
     installId: "",
+    installContext: "",
     agentName: "",
     profileNameSuffix: "",
     statusTarget: "",
@@ -416,6 +674,7 @@ function parseArgs(argv: string[]): Flags {
     const token = argv[i]!;
     const next = argv[i + 1];
     if (token === "--install-id" && next !== undefined) { flags.installId = next; i += 1; continue; }
+    if (token === "--install-context" && next !== undefined) { flags.installContext = next; i += 1; continue; }
     if (token === "--agent-name" && next !== undefined) { flags.agentName = next; i += 1; continue; }
     if (token === "--profile-name-suffix" && next !== undefined) { flags.profileNameSuffix = next; i += 1; continue; }
     if (token === "--status-target" && next !== undefined) { flags.statusTarget = next; i += 1; continue; }
@@ -707,7 +966,7 @@ function credentialsFromFlags(flags: Flags): RuntimeCredentials | null {
   const bindJson = cleanText(flags.bindJson);
   if (bindJson) {
     const raw = bindJson === "-"
-      ? fs.readFileSync(0, "utf8")
+      ? readStdinText()
       : fs.readFileSync(expandHome(bindJson), "utf8");
     const payload = JSON.parse(raw) as Record<string, unknown>;
     return normalizeBindPayload(payload, flags);
@@ -1116,6 +1375,7 @@ async function stepAccept(
   flags: Flags,
   state: StateFile,
   scripts: ScriptPaths,
+  deliveryTarget: ResolvedDeliveryTarget,
   hermesHome: string,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
@@ -1158,14 +1418,21 @@ async function stepAccept(
     );
   }
 
-  const statusTarget = cleanText(flags.statusTarget);
-  if (statusTarget) {
+  if (deliveryTarget.target) {
     const cardText = buildConversationCard({
       sessionId: acceptanceSessionId,
       sessionType: "group",
       title: `验收测试-${state.agent_name}`,
     });
-    runCommand([flags.node, scripts.sendScript, "--to", statusTarget, "--message", cardText], { env: cmdEnv });
+    sendDeliveryMessage(
+      flags,
+      state,
+      scripts,
+      deliveryTarget,
+      "acceptance_card",
+      cardText,
+      hermesHome,
+    );
   }
 
   const acceptanceProbeMessage = buildAcceptanceProbeMessage(targetAgentId, probeMessage);
@@ -1467,32 +1734,168 @@ function messageMatchesAcceptance(params: {
   return false;
 }
 
-async function sendStatusCard(
+function wasDeliveryAttemptSuccessful(state: StateFile, kind: DeliveryMessageKind): boolean {
+  return state.delivery.attempts.some((attempt) => attempt.kind === kind && attempt.ok);
+}
+
+function buildSuccessSummary(state: StateFile): string {
+  const agentName = cleanText(state.agent_name);
+  const profileName = cleanText(state.profile_name);
+  const acceptResult = state.steps.accept?.result || {};
+  const replyContent = cleanText(acceptResult.reply_content);
+
+  const head = profileName
+    ? `agent「${agentName}」已创建完成，本地 profile 为「${profileName}」`
+    : `agent「${agentName}」已创建完成`;
+
+  let summary = replyContent ? `${head}，验收回复为：${replyContent}` : `${head}，验收已通过`;
+  if (wasDeliveryAttemptSuccessful(state, "acceptance_card")) {
+    summary = `${summary}，测试群入口已发送`;
+  }
+  return summary;
+}
+
+function buildFailureSummary(agentName: string, step: string, reason: string, suggestion: string): string {
+  const shortReason = truncateText(reason, 120);
+  const shortSuggestion = truncateText(suggestion.split(/[。\n]/)[0] || suggestion, 80);
+  return `agent「${agentName}」孵化失败，停在 ${step}：${shortReason}。建议：${shortSuggestion}`;
+}
+
+function buildSuccessOutput(state: StateFile, backupDir: string): Record<string, unknown> {
+  const acceptResult = state.steps.accept?.result || {};
+  const acceptanceSessionId = cleanText(acceptResult.session_id);
+  const targetAgentId = cleanText(acceptResult.target_agent_id || state.steps.create?.result?.agent_id);
+
+  const acceptance: Record<string, unknown> = {
+    session_id: acceptanceSessionId,
+    target_agent_id: targetAgentId,
+    probe_message: cleanText(acceptResult.probe_message),
+    probe_message_id: cleanText(acceptResult.probe_message_id),
+    reply_msg_id: cleanText(acceptResult.reply_msg_id),
+    reply_sender_id: cleanText(acceptResult.reply_sender_id),
+    reply_content: cleanText(acceptResult.reply_content),
+    expected_substring: cleanText(acceptResult.expected_substring),
+  };
+
+  const links: Record<string, unknown> = {};
+  if (acceptanceSessionId) {
+    links.acceptance_conversation = buildConversationCard({
+      sessionId: acceptanceSessionId,
+      sessionType: "group",
+      title: `验收测试-${state.agent_name}`,
+    });
+  }
+  if (cleanText(state.delivery.target)) {
+    links.status_target = cleanText(state.delivery.target);
+  }
+
+  const output: Record<string, unknown> = {
+    ok: true as const,
+    install_id: state.install_id,
+    agent_name: state.agent_name,
+    profile_name: state.profile_name,
+    route: state.route,
+    path: state.path,
+    interaction_status: state.interaction_status,
+    delivery: state.delivery,
+    summary: buildSuccessSummary(state),
+    acceptance,
+    steps: Object.fromEntries(
+      STEP_NAMES.map((name) => [name, { status: state.steps[name].status }]),
+    ),
+  };
+
+  if (Object.keys(links).length > 0) output.links = links;
+  if (backupDir) output.backup_dir = backupDir;
+  return output;
+}
+
+function recordDeliveryAttempt(
+  state: StateFile,
+  deliveryTarget: ResolvedDeliveryTarget,
+  kind: DeliveryMessageKind,
+  message: string,
+  result: { ok: boolean; ack: Record<string, unknown> | null; error: string | null },
+): void {
+  if (!deliveryTarget.target) return;
+  state.delivery.attempts.push({
+    kind,
+    at: isoNow(),
+    ok: result.ok,
+    target: deliveryTarget.target,
+    target_source: deliveryTarget.source,
+    message_preview: truncateText(message),
+    ack: result.ack,
+    error: result.error,
+  });
+  refreshInteractionStatus(state);
+}
+
+function sendDeliveryMessage(
   flags: Flags,
+  state: StateFile,
+  scripts: ScriptPaths,
+  deliveryTarget: ResolvedDeliveryTarget,
+  kind: DeliveryMessageKind,
+  message: string,
+  hermesHome: string,
+): void {
+  if (!deliveryTarget.target) return;
+
+  const profileName = cleanText(state.profile_name) || cleanText(flags.profileName) || flags.agentName;
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HERMES_HOME: hermesHome,
+    HERMES_PROFILE: profileName,
+  };
+
+  try {
+    const result = runCommand(
+      [flags.node, scripts.sendScript, "--to", deliveryTarget.target, "--message", message],
+      { env, check: false },
+    );
+    if (result.code === 0) {
+      const payload = parseJsonOutput(result);
+      recordDeliveryAttempt(state, deliveryTarget, kind, message, {
+        ok: true,
+        ack: payload,
+        error: null,
+      });
+      return;
+    }
+    recordDeliveryAttempt(state, deliveryTarget, kind, message, {
+      ok: false,
+      ack: null,
+      error: truncateText(result.stderr || result.stdout || "message-send failed"),
+    });
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    recordDeliveryAttempt(state, deliveryTarget, kind, message, {
+      ok: false,
+      ack: null,
+      error: truncateText(messageText),
+    });
+  }
+}
+
+function sendStatusCard(
+  flags: Flags,
+  state: StateFile,
+  scripts: ScriptPaths,
+  deliveryTarget: ResolvedDeliveryTarget,
+  kind: DeliveryMessageKind,
   status: string,
   step: string,
   summary: string,
   hermesHome: string,
-): Promise<void> {
-  const target = cleanText(flags.statusTarget);
-  if (!target) return;
-  try {
-    const cardText = buildEggStatusCard({
-      installId: flags.installId,
-      status,
-      step,
-      summary,
-    });
-    const profileName = cleanText(flags.profileName) || flags.agentName;
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      HERMES_HOME: hermesHome,
-      HERMES_PROFILE: profileName,
-    };
-    runCommand([flags.node, resolveScripts(projectRoot()).sendScript, "--to", target, "--message", cardText], { env });
-  } catch {
-    // best-effort
-  }
+): void {
+  const cardText = buildEggStatusCard({
+    installId: flags.installId,
+    status,
+    step,
+    summary,
+  });
+  sendDeliveryMessage(flags, state, scripts, deliveryTarget, kind, cardText, hermesHome);
 }
 
 // ---------------------------------------------------------------------------
@@ -1503,12 +1906,15 @@ function buildResumeCommand(flags: Flags): string {
   const parts = ["node", "scripts/bootstrap.js"];
   parts.push("--install-id", flags.installId);
   parts.push("--agent-name", flags.agentName);
+  if (flags.installContext && flags.installContext !== "-") parts.push("--install-context", flags.installContext);
   if (flags.route) parts.push("--route", flags.route);
   if (flags.profileName) parts.push("--profile-name", flags.profileName);
   else if (flags.profileNameSuffix) parts.push("--profile-name-suffix", flags.profileNameSuffix);
   if (flags.soulFile) parts.push("--soul-file", flags.soulFile);
   if (flags.soulContent) parts.push("--soul-content", `'${flags.soulContent.slice(0, 30)}...'`);
   if (flags.statusTarget) parts.push("--status-target", flags.statusTarget);
+  if (flags.homeChannel) parts.push("--home-channel", flags.homeChannel);
+  if (flags.homeChannelName) parts.push("--home-channel-name", flags.homeChannelName);
   if (flags.expectedSubstring) parts.push("--expected-substring", flags.expectedSubstring);
   if (flags.bindJson && flags.bindJson !== "-") parts.push("--bind-json", flags.bindJson);
   parts.push("--resume", "--json");
@@ -1534,6 +1940,10 @@ async function main(): Promise<number> {
     process.stderr.write("Missing required flag for resume: --install-id\n");
     return 1;
   }
+  if (cleanText(flags.installContext) === "-" && cleanText(flags.bindJson) === "-") {
+    process.stderr.write("--install-context - cannot be combined with --bind-json - because both require stdin\n");
+    return 1;
+  }
   try {
     validateProfileNameSuffix(flags.profileNameSuffix);
   } catch (error) {
@@ -1547,6 +1957,17 @@ async function main(): Promise<number> {
     );
     return 1;
   }
+  let installContext: InstallContext | null;
+  try {
+    installContext = loadInstallContext(flags.installContext);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    return 1;
+  }
+  const deliveryTarget = resolveDeliveryTarget(flags, installContext);
+  flags.homeChannel = resolveHomeChannel(flags, installContext);
+  flags.homeChannelName = resolveHomeChannelName(flags, installContext);
   flags.installId = cleanText(flags.installId) || generateInstallId();
   flags.profileName = resolveBootstrapProfileName(
     flags.profileName,
@@ -1583,6 +2004,9 @@ async function main(): Promise<number> {
     } else {
       state = makeFreshState(flags);
   }
+  state.delivery.attempts = [];
+  state.interaction_status = "none";
+  setResolvedDeliveryTarget(state, deliveryTarget);
 
   // Dry-run mode
   if (flags.dryRun) {
@@ -1594,6 +2018,8 @@ async function main(): Promise<number> {
       profile_name: state.profile_name,
       route: flags.route,
       hermes_home: hermesHome,
+      interaction_status: state.interaction_status,
+      delivery: state.delivery,
       steps: Object.fromEntries(STEP_NAMES.map((name) => [name, state.steps[name]?.status || "pending"])),
     };
     process.stdout.write(`${JSON.stringify(dryRunPayload, null, 2)}\n`);
@@ -1604,7 +2030,7 @@ async function main(): Promise<number> {
   let currentStep: StepName = "detect";
 
   try {
-    await sendStatusCard(flags, "running", "preparing", "开始孵化 agent", hermesHome);
+    sendStatusCard(flags, state, scripts, deliveryTarget, "running_card", "running", "preparing", "开始孵化 agent", hermesHome);
     saveState(stateFile, state);
 
     // Backup for existing route
@@ -1645,27 +2071,17 @@ async function main(): Promise<number> {
 
     // Step 7: accept (async due to polling)
     currentStep = "accept";
-    await stepAccept(flags, state, scripts, hermesHome, env);
+    await stepAccept(flags, state, scripts, deliveryTarget, hermesHome, env);
     saveState(stateFile, state);
 
     // Success
     state.completed_at = isoNow();
+    const successSummary = buildSuccessSummary(state);
+    sendDeliveryMessage(flags, state, scripts, deliveryTarget, "final_text", successSummary, hermesHome);
+    sendStatusCard(flags, state, scripts, deliveryTarget, "final_card", "success", "complete", "Agent 孵化完成", hermesHome);
     saveState(stateFile, state);
 
-    await sendStatusCard(flags, "success", "complete", "Agent 孵化完成", hermesHome);
-
-    const output: Record<string, unknown> = {
-      ok: true as const,
-      install_id: state.install_id,
-      agent_name: state.agent_name,
-      profile_name: state.profile_name,
-      route: state.route,
-      path: state.path,
-      steps: Object.fromEntries(
-        STEP_NAMES.map((name) => [name, { status: state.steps[name].status }]),
-      ),
-    };
-    if (backupDir) output.backup_dir = backupDir;
+    const output = buildSuccessOutput(state, backupDir);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     return 0;
   } catch (error) {
@@ -1680,9 +2096,10 @@ async function main(): Promise<number> {
     } else {
       markStepFailed(state, currentStep, reason);
     }
+    const failureSummary = buildFailureSummary(state.agent_name || flags.agentName, stepName, reason, suggestion);
+    sendDeliveryMessage(flags, state, scripts, deliveryTarget, "failure_text", failureSummary, hermesHome);
+    sendStatusCard(flags, state, scripts, deliveryTarget, "failure_card", "failed", stepName, reason.slice(0, 100), hermesHome);
     saveState(stateFile, state);
-
-    await sendStatusCard(flags, "failed", stepName, reason.slice(0, 100), hermesHome);
 
     const errorPayload = {
       ok: false as const,
@@ -1693,6 +2110,8 @@ async function main(): Promise<number> {
       state_file: stateFile,
       resume_command: buildResumeCommand(flags),
       raw_error: rawError,
+      interaction_status: state.interaction_status,
+      delivery: state.delivery,
     };
 
     if (flags.json) {

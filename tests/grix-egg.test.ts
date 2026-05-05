@@ -52,7 +52,17 @@ if (script.endsWith("bin/grix-hermes.js")) {
   save("group-args.json", args);
   out({ data: { session_id: "session-accept" } });
 } else if (script.endsWith("send.js")) {
+  const to = arg("--to");
   const message = arg("--message");
+  if (stateDir) {
+    fs.appendFileSync(path.join(stateDir, "send-calls.jsonl"), JSON.stringify({ to, message }) + "\\n");
+  }
+  const failMatch = process.env.FAKE_SEND_FAIL_MATCH || "";
+  const failTarget = process.env.FAKE_SEND_FAIL_TARGET || "";
+  if ((failMatch && message.includes(failMatch)) || (failTarget && to === failTarget)) {
+    process.stderr.write("simulated send failure");
+    process.exit(7);
+  }
   if (message.includes("probe") || message.includes("ping")) {
     save("probe-message.txt", message);
     out({ ok: true, ack: { message_id: "100" } });
@@ -81,6 +91,16 @@ if (script.endsWith("bin/grix-hermes.js")) {
   process.exit(9);
 }
 `);
+}
+
+function readSendCalls(tmp: string): Array<{ to: string; message: string }> {
+  const filePath = path.join(tmp, "send-calls.jsonl");
+  if (!fs.existsSync(filePath)) return [];
+  return fs.readFileSync(filePath, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { to: string; message: string });
 }
 
 describe("grix-egg bootstrap", () => {
@@ -113,11 +133,31 @@ describe("grix-egg bootstrap", () => {
       agent_name: string;
       profile_name: string;
       path?: string;
+      interaction_status: string;
+      delivery: {
+        target: string;
+        attempts: Array<{ kind: string }>;
+      };
+      summary: string;
+      acceptance: {
+        session_id: string;
+        reply_content: string;
+      };
+      links: {
+        acceptance_conversation: string;
+      };
     };
     assert.match(output.install_id, /^egg-[0-9a-f]{8}$/);
     assert.equal(output.agent_name, "雪碧");
     assert.equal(output.profile_name, "egg-xuebi");
     assert.equal(output.path, "host");
+    assert.equal(output.interaction_status, "none");
+    assert.equal(output.delivery.target, "");
+    assert.equal(output.delivery.attempts.length, 0);
+    assert.match(output.summary, /agent「雪碧」已创建完成/);
+    assert.equal(output.acceptance.session_id, "session-accept");
+    assert.equal(output.acceptance.reply_content, "identity-ok after probe");
+    assert.match(output.links.acceptance_conversation, /grix:\/\/card\/conversation\?/);
 
     const statePath = path.join(hermesHome, "tmp", `grix-egg-${output.install_id}.json`);
     assert.equal(fs.existsSync(statePath), true);
@@ -129,6 +169,62 @@ describe("grix-egg bootstrap", () => {
     assert.equal(fs.readFileSync(path.join(tmp, "probe-message.txt"), "utf8"), "@agent-target probe");
     const queryArgs = JSON.parse(fs.readFileSync(path.join(tmp, "query-args.json"), "utf8")) as string[];
     assert.equal(queryArgs[queryArgs.indexOf("--action") + 1], "message_history");
+  });
+
+  it("sends the full success interaction loop to an explicit status target", () => {
+    const tmp = makeTempDir("grix-egg-status-target-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-status-target",
+      "--agent-name", "statusagent",
+      "--profile-name", "statusagent",
+      "--status-target", "session-status",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      interaction_status: string;
+      delivery: {
+        target: string;
+        target_source: string;
+        attempts: Array<{ kind: string; ok: boolean }>;
+      };
+      summary: string;
+    };
+    assert.equal(output.interaction_status, "full");
+    assert.equal(output.delivery.target, "session-status");
+    assert.equal(output.delivery.target_source, "status_target");
+    assert.deepEqual(
+      output.delivery.attempts.map((attempt) => [attempt.kind, attempt.ok]),
+      [
+        ["running_card", true],
+        ["acceptance_card", true],
+        ["final_text", true],
+        ["final_card", true],
+      ],
+    );
+    assert.match(output.summary, /测试群入口已发送/);
+
+    const targetCalls = readSendCalls(tmp).filter((call) => call.to === "session-status");
+    assert.equal(targetCalls.length, 4);
+    assert.match(targetCalls[0]!.message, /grix:\/\/card\/egg_install_status\?.*status=running/);
+    assert.match(targetCalls[1]!.message, /grix:\/\/card\/conversation\?/);
+    assert.match(targetCalls[2]!.message, /agent「statusagent」已创建完成/);
+    assert.match(targetCalls[3]!.message, /grix:\/\/card\/egg_install_status\?.*status=success/);
   });
 
   it("normalizes the requested English suffix when auto-generating a profile name for a non-ASCII agent name", () => {
@@ -331,6 +427,7 @@ describe("grix-egg bootstrap", () => {
       path.join(root, "grix-egg", "scripts", "bootstrap.js"),
       "--install-id", "egg-false-accept",
       "--agent-name", "safeagent",
+      "--status-target", "session-accept-failed",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
       "--accept-timeout-seconds", "0.2",
@@ -350,7 +447,28 @@ describe("grix-egg bootstrap", () => {
     });
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /验收超时/);
+    const output = JSON.parse(result.stderr) as {
+      reason: string;
+      interaction_status: string;
+      delivery: {
+        attempts: Array<{ kind: string; ok: boolean }>;
+      };
+    };
+    assert.match(output.reason, /验收超时/);
+    assert.equal(output.interaction_status, "full");
+    assert.deepEqual(
+      output.delivery.attempts.map((attempt) => [attempt.kind, attempt.ok]),
+      [
+        ["running_card", true],
+        ["acceptance_card", true],
+        ["failure_text", true],
+        ["failure_card", true],
+      ],
+    );
+
+    const targetCalls = readSendCalls(tmp).filter((call) => call.to === "session-accept-failed");
+    assert.equal(targetCalls.length, 4);
+    assert.equal(targetCalls.some((call) => call.message.includes("status=success")), false);
   });
 
   it("falls back to HTTP when no reusable host Grix session exists and an access token is available", () => {
@@ -463,6 +581,7 @@ describe("grix-egg bootstrap", () => {
       path.join(root, "grix-egg", "scripts", "bootstrap.js"),
       "--install-id", "egg-ws-fallback",
       "--agent-name", "fallbackagent",
+      "--status-target", "session-create-failed",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
       "--access-token", "token",
@@ -479,17 +598,35 @@ describe("grix-egg bootstrap", () => {
     });
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /unsupported cmd for hermes/);
+    const output = JSON.parse(result.stderr) as {
+      reason: string;
+      interaction_status: string;
+      delivery: {
+        attempts: Array<{ kind: string; ok: boolean }>;
+      };
+    };
+    assert.match(output.reason, /unsupported cmd for hermes/);
+    assert.equal(output.interaction_status, "full");
+    assert.deepEqual(
+      output.delivery.attempts.map((attempt) => [attempt.kind, attempt.ok]),
+      [
+        ["running_card", true],
+        ["failure_text", true],
+        ["failure_card", true],
+      ],
+    );
     assert.equal(fs.existsSync(path.join(tmp, "http-create-args.json")), false);
     const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-ws-fallback.json");
     const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
       path: string;
+      interaction_status: string;
       steps: {
         detect: { result: Record<string, string> };
         create: { status: string; result: Record<string, string> | null };
       };
     };
     assert.equal(state.path, "host");
+    assert.equal(state.interaction_status, "full");
     assert.equal(state.steps.detect.result.path, "host");
     assert.equal(state.steps.create.status, "failed");
     assert.equal(state.steps.create.result, null);
@@ -550,6 +687,181 @@ describe("grix-egg bootstrap", () => {
     assert.equal(state.steps.create.result.path, "host");
     assert.equal(state.steps.detect.result.ws_source, "Hermes profile .env (safeagent)");
     assert.equal(state.steps.detect.result.ws_profile_name, "safeagent");
+  });
+
+  it("falls back to home-channel as the status delivery target when status-target is omitted", () => {
+    const tmp = makeTempDir("grix-egg-home-channel-status-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-home-channel-status",
+      "--agent-name", "homeagent",
+      "--profile-name", "homeagent",
+      "--home-channel", "session-home",
+      "--home-channel-name", "当前会话",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      interaction_status: string;
+      delivery: {
+        target_source: string;
+        attempts: Array<{ kind: string; ok: boolean }>;
+      };
+      links: {
+        status_target: string;
+      };
+    };
+    assert.equal(output.interaction_status, "full");
+    assert.equal(output.links.status_target, "session-home");
+    assert.equal(output.delivery.target_source, "home_channel");
+
+    const sendCalls = readSendCalls(tmp);
+
+    const statusMessages = sendCalls.filter((call) =>
+      call.to === "session-home" && call.message.includes("grix://card/egg_install_status?"),
+    );
+    const conversationMessages = sendCalls.filter((call) =>
+      call.to === "session-home" && call.message.includes("grix://card/conversation?"),
+    );
+    const finalTextMessages = sendCalls.filter((call) =>
+      call.to === "session-home" && call.message.includes("agent「homeagent」已创建完成"),
+    );
+
+    assert.equal(statusMessages.length >= 2, true);
+    assert.equal(conversationMessages.length >= 1, true);
+    assert.equal(finalTextMessages.length, 1);
+    assert.deepEqual(
+      output.delivery.attempts.map((attempt) => [attempt.kind, attempt.ok]),
+      [
+        ["running_card", true],
+        ["acceptance_card", true],
+        ["final_text", true],
+        ["final_card", true],
+      ],
+    );
+  });
+
+  it("uses install-context current_chat_session_id as the delivery fallback and inherits home-channel-name", () => {
+    const tmp = makeTempDir("grix-egg-install-context-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const installContextPath = path.join(tmp, "install-context.json");
+    fs.writeFileSync(installContextPath, JSON.stringify({
+      install_id: "egg-install-context",
+      current_chat_session_id: "session-context",
+      main_agent: {
+        home_channel_name: "当前对话",
+      },
+    }, null, 2));
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-install-context",
+      "--agent-name", "contextagent",
+      "--profile-name", "contextagent",
+      "--install-context", installContextPath,
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      interaction_status: string;
+      delivery: {
+        target: string;
+        target_source: string;
+      };
+    };
+    assert.equal(output.interaction_status, "full");
+    assert.equal(output.delivery.target, "session-context");
+    assert.equal(output.delivery.target_source, "install_context.current_chat_session_id");
+
+    const sendCalls = readSendCalls(tmp).filter((call) => call.to === "session-context");
+    assert.equal(sendCalls.length, 4);
+
+    const bindArgs = JSON.parse(fs.readFileSync(path.join(tmp, "bind-args.json"), "utf8")) as string[];
+    assert.equal(bindArgs[bindArgs.indexOf("--home-channel") + 1], "session-context");
+    assert.equal(bindArgs[bindArgs.indexOf("--home-channel-name") + 1], "当前对话");
+  });
+
+  it("marks interaction status as degraded when the final summary cannot be delivered", () => {
+    const tmp = makeTempDir("grix-egg-delivery-degraded-");
+    const hermesHome = path.join(tmp, "hermes");
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-delivery-degraded",
+      "--agent-name", "deliveryagent",
+      "--profile-name", "deliveryagent",
+      "--status-target", "session-degraded",
+      "--hermes-home", hermesHome,
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_STATE_DIR: tmp,
+        FAKE_SEND_FAIL_MATCH: "验收回复为",
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      interaction_status: string;
+      delivery: {
+        attempts: Array<{ kind: string; ok: boolean; error: string | null }>;
+      };
+    };
+    assert.equal(output.interaction_status, "degraded");
+    assert.deepEqual(
+      output.delivery.attempts.map((attempt) => [attempt.kind, attempt.ok]),
+      [
+        ["running_card", true],
+        ["acceptance_card", true],
+        ["final_text", false],
+        ["final_card", true],
+      ],
+    );
+    assert.match(output.delivery.attempts[2]!.error || "", /simulated send failure/);
+
+    const statePath = path.join(hermesHome, "tmp", "grix-egg-egg-delivery-degraded.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+      interaction_status: string;
+      delivery: {
+        attempts: Array<{ kind: string; ok: boolean }>;
+      };
+    };
+    assert.equal(state.interaction_status, "degraded");
+    assert.equal(state.delivery.attempts[2]!.kind, "final_text");
+    assert.equal(state.delivery.attempts[2]!.ok, false);
   });
 
   it("accepts host create payloads wrapped in createdAgent", () => {
