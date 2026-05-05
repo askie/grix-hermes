@@ -366,7 +366,7 @@ function parseArgs(argv: string[]): Flags {
     hermes: "hermes",
     node: "node",
     probeMessage: "probe",
-    expectedSubstring: "identity-ok",
+    expectedSubstring: "",
     memberIds: "",
     memberTypes: "",
     agentId: "",
@@ -1092,17 +1092,8 @@ async function stepAccept(
 ): Promise<void> {
   if (stepIsDone(state, "accept")) return;
 
-  const probeMessage = cleanText(flags.probeMessage);
+  const probeMessage = "probe";
   const expectedSubstring = cleanText(flags.expectedSubstring);
-
-  if (!probeMessage || !expectedSubstring) {
-    throw new BootstrapError(
-      "accept", 7,
-      "验收步骤已设为必做，但缺少 probe-message 或 expected-substring",
-      "为 bootstrap 提供可用的 --probe-message / --expected-substring，或保持默认验收参数不覆盖为空值。",
-      `probe_message=${JSON.stringify(probeMessage)}, expected_substring=${JSON.stringify(expectedSubstring)}`,
-    );
-  }
 
   const createResult = state.steps.create?.result;
   const targetAgentId = cleanText(createResult?.agent_id || flags.agentId);
@@ -1160,7 +1151,9 @@ async function stepAccept(
   const timeoutSeconds = parsePositiveFloat(flags.acceptTimeoutSeconds, 15);
   const pollInterval = parsePositiveFloat(flags.acceptPollIntervalSeconds, 1);
   const expectedLower = expectedSubstring.toLowerCase();
+  const requireExpectedSubstring = Boolean(expectedLower);
   const deadline = Date.now() + timeoutSeconds * 1000;
+
   let lastQuery: Record<string, unknown> = {};
   let lastCandidateCount = 0;
 
@@ -1182,6 +1175,7 @@ async function stepAccept(
         message,
         targetAgentId,
         expectedLower,
+        requireExpectedSubstring,
         probeMessageId,
         probeSentAtMs,
       }),
@@ -1206,7 +1200,9 @@ async function stepAccept(
 
   throw new BootstrapError(
     "accept", 7,
-    `验收超时：agent 未在 ${timeoutSeconds} 秒内回复包含「${expectedSubstring}」的内容`,
+    requireExpectedSubstring
+      ? `验收超时：agent 未在 ${timeoutSeconds} 秒内回复包含「${expectedSubstring}」的内容`
+      : `验收超时：agent 未在 ${timeoutSeconds} 秒内给出 probe 之后的首条非空回复`,
     "检查：(1) SOUL.md 内容是否正确，(2) 网关是否在线（hermes --profile <name> gateway status），(3) agent 是否已连接到 Grix。",
     `target_agent_id=${targetAgentId}, probe_message_id=${probeMessageId}, candidates=${lastCandidateCount}, last_query=${JSON.stringify(lastQuery)}`,
   );
@@ -1423,11 +1419,13 @@ function messageMatchesAcceptance(params: {
   message: Record<string, unknown>;
   targetAgentId: string;
   expectedLower: string;
+  requireExpectedSubstring: boolean;
   probeMessageId: string;
   probeSentAtMs: number;
 }): boolean {
-  const text = extractMessageText(params.message).toLowerCase();
-  if (!text.includes(params.expectedLower)) return false;
+  const text = extractMessageText(params.message).trim();
+  if (!text) return false;
+  if (params.requireExpectedSubstring && !text.toLowerCase().includes(params.expectedLower)) return false;
   if (!extractSenderIds(params.message).includes(params.targetAgentId)) return false;
 
   const messageId = parseNumericId(extractMessageId(params.message));
@@ -1481,7 +1479,6 @@ function buildResumeCommand(flags: Flags): string {
   if (flags.soulFile) parts.push("--soul-file", flags.soulFile);
   if (flags.soulContent) parts.push("--soul-content", `'${flags.soulContent.slice(0, 30)}...'`);
   if (flags.statusTarget) parts.push("--status-target", flags.statusTarget);
-  if (flags.probeMessage) parts.push("--probe-message", flags.probeMessage);
   if (flags.expectedSubstring) parts.push("--expected-substring", flags.expectedSubstring);
   if (flags.bindJson && flags.bindJson !== "-") parts.push("--bind-json", flags.bindJson);
   parts.push("--resume", "--json");

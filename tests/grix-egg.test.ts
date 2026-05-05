@@ -176,8 +176,6 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "probe",
-      "--expected-substring", "identity-ok",
       "--member-ids", "user-1",
       "--accept-timeout-seconds", "1",
       "--accept-poll-interval-seconds", "0.1",
@@ -216,6 +214,7 @@ describe("grix-egg bootstrap", () => {
     assert.equal(state.steps.accept.result.reply_msg_id, "102");
     assert.equal(state.steps.accept.result.reply_sender_id, "agent-target");
     assert.equal(state.steps.accept.result.reply_content, "identity-ok after probe");
+    assert.equal(state.steps.accept.result.expected_substring, "");
 
     const bindInput = fs.readFileSync(path.join(tmp, "bind-input.json"), "utf8");
     assert.ok(bindInput.includes("ak_123_SECRET"));
@@ -265,10 +264,9 @@ describe("grix-egg bootstrap", () => {
       "--agent-name", "safeagent",
       "--hermes-home", hermesHome,
       "--node", fakeNode,
-      "--probe-message", "probe",
-      "--expected-substring", "identity-ok",
       "--accept-timeout-seconds", "0.2",
       "--accept-poll-interval-seconds", "0.1",
+      "--expected-substring", "identity-ok after probe",
       "--json",
     ], {
       encoding: "utf8",

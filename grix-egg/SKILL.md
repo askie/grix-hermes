@@ -56,9 +56,9 @@ node scripts/bootstrap.js ... --json
    - 程序发送验收消息时会自动在消息前拼接 `@<agent_id>` mention
    - Grix mention 格式是 `@agent_id`（不要用方括号 `@[agent_id]`）
    - 验收查询动作固定使用 `message_history`
-   - 默认验收参数：
-     - `--probe-message probe`
-     - `--expected-substring identity-ok`
+   - 程序内部固定发送 `probe` 探针消息
+   - 默认成功条件：目标 agent 在 probe 之后给出首条非空回复
+   - `--expected-substring` 仅作为可选增强条件；省略时不做文本命中要求
 8. 输出 JSON
    - 成功：stdout
    - 失败：stderr，并带 `step / reason / suggestion / state_file / resume_command`
@@ -86,8 +86,8 @@ node scripts/bootstrap.js ... --json
 - `--home-channel`
 - `--home-channel-name`
 - `--status-target`
-- `--probe-message`
 - `--expected-substring`
+  - 仅在需要额外文本命中约束时提供；默认不需要
 - `--member-ids`
 - `--member-types`
 
@@ -179,6 +179,8 @@ AI 可以把自然语言转换为标准参数，例如：
   - `--agent-name 雪碧`
   - `--soul-content ...`
   - 其余保持默认
+- “需要额外校验回复里必须带某个词”
+  - 在上面基础上补 `--expected-substring`
 - “没有宿主会话，用这个 token 创建”
   - 在上面基础上补 `--access-token`
 - “没有宿主会话，用户只给了邮箱/账号和密码”
@@ -294,7 +296,7 @@ node scripts/bootstrap.js \
 
 | 故障表现 | 最可能根因 | 排查方向 |
 |---|---|---|
-| accept 阶段超时，目标 agent 无回复 | mention 格式错误或 agent 未上线 | 程序已自动拼接 `@agent_id`，不要在 `--probe-message` 里手动加 mention |
+| accept 阶段超时，目标 agent 无回复 | mention 格式错误或 agent 未上线 | 程序已自动拼接 `@agent_id`，不要手动覆盖内部 probe；优先检查 agent 是否真的在线 |
 | accept 阶段拿到了旧消息误判成功 | 查询范围或匹配条件不对 | 验收必须基于测试群 `session_id` 调 `message_history`，并只接受 probe 发出后的目标 agent 回复 |
 | gateway 日志出现 `No messaging platforms enabled` | hermes-home 或 profile 不一致 | 检查 bootstrap 和 gateway 是否用了同一个 `--hermes-home`；检查 profile 内是否有 Grix 配置 |
 | `MODULE_NOT_FOUND` 找不到脚本 | 工作目录不对 | 参照第 6 节调整脚本路径前缀 |
