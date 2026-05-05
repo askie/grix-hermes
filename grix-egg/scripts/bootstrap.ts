@@ -34,6 +34,14 @@ function resolveHermesHome(explicit: string): string {
   return path.resolve(expandHome(raw));
 }
 
+function resolveProfileRoot(hermesHome: string): string {
+  let current = path.resolve(hermesHome);
+  while (path.basename(path.dirname(current)) === "profiles") {
+    current = path.dirname(path.dirname(current));
+  }
+  return current;
+}
+
 function resolveProfileDir(hermesHome: string, profileName: string): string {
   const normalized = cleanText(profileName);
   if (!normalized || normalized === "default") return hermesHome;
@@ -1224,6 +1232,7 @@ function stepBind(
   credentials: RuntimeCredentials | null,
 ): void {
   if (stepIsDone(state, "bind")) return;
+  const profileRoot = resolveProfileRoot(hermesHome);
 
   const createResult = state.steps.create?.result;
   const pathUsed = state.path || (state.steps.create?.result?.["path"] as CreatePath) || (state.steps.detect?.result?.["path"] as CreatePath);
@@ -1234,7 +1243,7 @@ function stepBind(
     const profileName = cleanText(createResult?.profile_name) || flags.profileName || flags.agentName;
     markStepDone(state, "bind", {
       profile_name: profileName,
-      profile_dir: resolveProfileDir(hermesHome, profileName),
+      profile_dir: resolveProfileDir(profileRoot, profileName),
       via: "http_create_and_bind",
     });
     state.profile_name = profileName;
@@ -1294,7 +1303,7 @@ function stepBind(
   const payload = parseJsonOutput(result);
   const bindResult = extractNested(payload, "bind_result") || payload;
   const resolvedProfile = cleanText(bindResult.profile_name) || profileName;
-  const resolvedProfileDir = cleanText(bindResult.profile_dir) || resolveProfileDir(hermesHome, resolvedProfile);
+  const resolvedProfileDir = cleanText(bindResult.profile_dir) || resolveProfileDir(profileRoot, resolvedProfile);
 
   markStepDone(state, "bind", {
     profile_name: resolvedProfile,
@@ -1314,7 +1323,9 @@ function stepSoul(
   if (stepIsDone(state, "soul")) return;
 
   const profileName = state.profile_name || flags.profileName || flags.agentName;
-  const profileDir = resolveProfileDir(hermesHome, profileName);
+  const boundProfileDir = cleanText(state.steps.bind?.result?.profile_dir);
+  const profileRoot = resolveProfileRoot(hermesHome);
+  const profileDir = boundProfileDir || resolveProfileDir(profileRoot, profileName);
 
   let content: string;
   const soulFile = cleanText(flags.soulFile);
@@ -2035,7 +2046,7 @@ async function main(): Promise<number> {
 
     // Backup for existing route
     const profileName = state.profile_name || flags.profileName || flags.agentName;
-    const profileDir = resolveProfileDir(hermesHome, profileName);
+    const profileDir = resolveProfileDir(resolveProfileRoot(hermesHome), profileName);
     const installDir = cleanText(flags.installDir) || defaultInstallDir(hermesHome);
     const backupDir = backupExistingState(hermesHome, flags.route, profileDir, installDir);
 

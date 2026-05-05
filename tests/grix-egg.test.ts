@@ -39,7 +39,11 @@ if (script.endsWith("bin/grix-hermes.js")) {
 } else if (script.endsWith("bind_local.js")) {
   save("bind-input.json", fs.readFileSync(0, "utf8"));
   save("bind-args.json", args);
-  out({ profile_name: arg("--profile-name") || "safeagent" });
+  const payload = {
+    profile_name: arg("--profile-name") || "safeagent",
+  };
+  if (process.env.FAKE_BIND_PROFILE_DIR) payload.profile_dir = process.env.FAKE_BIND_PROFILE_DIR;
+  out(payload);
 } else if (script.endsWith("create_api_agent_and_bind.js")) {
   save("http-create-args.json", args);
   out({ bind_result: { agent_id: "http-agent", agent_name: "httpagent", profile_name: "httpagent", api_endpoint: "wss://http-target", api_key: "ak_123_HTTPSECRET" } });
@@ -689,6 +693,44 @@ describe("grix-egg bootstrap", () => {
     assert.equal(state.steps.detect.result.ws_profile_name, "safeagent");
   });
 
+  it("keeps bootstrap writes on the top-level profile root when running inside another profile home", () => {
+    const tmp = makeTempDir("grix-egg-profile-root-");
+    const globalHermesHome = path.join(tmp, "hermes");
+    const runtimeHermesHome = path.join(globalHermesHome, "profiles", "grix-online");
+    const targetProfileDir = path.join(globalHermesHome, "profiles", "moonagent");
+    fs.mkdirSync(runtimeHermesHome, { recursive: true });
+    const fakeNode = writeFakeNode(path.join(tmp, "fake-node.js"));
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bootstrap.js"),
+      "--install-id", "egg-profile-root",
+      "--agent-name", "moonagent",
+      "--profile-name", "moonagent",
+      "--soul-content", "moon soul",
+      "--node", fakeNode,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HERMES_HOME: runtimeHermesHome,
+        FAKE_STATE_DIR: tmp,
+        FAKE_BIND_PROFILE_DIR: targetProfileDir,
+        GRIX_ENDPOINT: "wss://caller",
+        GRIX_AGENT_ID: "caller-agent",
+        GRIX_API_KEY: "ak_123_CALLER",
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(targetProfileDir, "SOUL.md")), true);
+    assert.equal(fs.readFileSync(path.join(targetProfileDir, "SOUL.md"), "utf8"), "moon soul\n");
+    assert.equal(
+      fs.existsSync(path.join(runtimeHermesHome, "profiles", "moonagent", "SOUL.md")),
+      false,
+    );
+  });
+
   it("falls back to home-channel as the status delivery target when status-target is omitted", () => {
     const tmp = makeTempDir("grix-egg-home-channel-status-");
     const hermesHome = path.join(tmp, "hermes");
@@ -906,14 +948,22 @@ describe("grix-egg gateway startup", () => {
   it("installs a missing service before retrying gateway start", () => {
     const tmp = makeTempDir("grix-egg-gateway-");
     const hermesHome = path.join(tmp, "hermes");
-    fs.mkdirSync(path.join(hermesHome, "profiles", "safeagent"), { recursive: true });
-    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
-    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    const profileDir = path.join(hermesHome, "profiles", "safeagent");
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(profileDir, ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
     const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
 const stateDir = process.env.FAKE_STATE_DIR;
 const args = process.argv.slice(2);
+const profileName = args[1] && args[0] === "--profile" ? args[1] : "default";
+const profileDir = path.join(process.env.HERMES_HOME, "profiles", profileName);
+const logDir = path.join(profileDir, "logs");
+function markConnected() {
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.writeFileSync(path.join(logDir, "gateway.log"), "2026-05-05 INFO gateway.platforms.grix: [Grix] Connected to wss://gateway\\n2026-05-05 INFO gateway.run: ✓ grix connected\\n");
+}
 fs.appendFileSync(path.join(stateDir, "hermes.log"), args.join(" ") + "\\n");
 const gatewayIndex = args.indexOf("gateway");
 const sub = gatewayIndex >= 0 ? args[gatewayIndex + 1] : "";
@@ -929,12 +979,14 @@ if (sub === "status") {
     process.exit(1);
   }
   fs.writeFileSync(started, "1");
+  markConnected();
   process.stdout.write("started");
 } else if (sub === "install") {
   fs.writeFileSync(installed, "1");
   process.stdout.write("installed");
 } else if (sub === "run") {
   fs.writeFileSync(started, "1");
+  markConnected();
   process.stdout.write("running foreground");
 } else {
   process.stderr.write("unexpected hermes args: " + args.join(" "));
@@ -960,9 +1012,11 @@ if (sub === "status") {
   it("treats launchd-loaded gateway status as running", () => {
     const tmp = makeTempDir("grix-egg-gateway-launchd-");
     const hermesHome = path.join(tmp, "hermes");
-    fs.mkdirSync(path.join(hermesHome, "profiles", "safeagent"), { recursive: true });
-    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
-    fs.writeFileSync(path.join(hermesHome, "profiles", "safeagent", ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    const profileDir = path.join(hermesHome, "profiles", "safeagent");
+    fs.mkdirSync(path.join(profileDir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(profileDir, "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(profileDir, ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    fs.writeFileSync(path.join(profileDir, "logs", "gateway.log"), "2026-05-05 INFO gateway.run: ✓ grix connected\n");
     const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const gatewayIndex = args.indexOf("gateway");
@@ -1021,6 +1075,83 @@ if (sub === "status") {
     assert.equal(result.status, 1);
     assert.match(result.stderr, /did not load the grix messaging platform/);
   });
+
+  it("fails when the latest gateway log shows that grix never loaded", () => {
+    const tmp = makeTempDir("grix-egg-gateway-log-health-");
+    const hermesHome = path.join(tmp, "hermes");
+    const profileDir = path.join(hermesHome, "profiles", "safeagent");
+    fs.mkdirSync(path.join(profileDir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(profileDir, "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(profileDir, ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    fs.writeFileSync(path.join(profileDir, "logs", "gateway.log"), "2026-05-05 WARNING gateway.run: No messaging platforms enabled\n");
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const gatewayIndex = args.indexOf("gateway");
+const sub = gatewayIndex >= 0 ? args[gatewayIndex + 1] : "";
+if (sub === "status") {
+  process.stdout.write("running");
+} else {
+  process.stdout.write("ok");
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "start_gateway.js"),
+      "--profile-name", "safeagent",
+      "--hermes-home", hermesHome,
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /did not finish loading the grix platform/);
+    assert.match(result.stderr, /no messaging platforms enabled/);
+  });
+
+  it("uses the top-level Hermes root when starting a profile from inside another profile home", () => {
+    const tmp = makeTempDir("grix-egg-gateway-profile-root-");
+    const globalHermesHome = path.join(tmp, "hermes");
+    const runtimeHermesHome = path.join(globalHermesHome, "profiles", "grix-online");
+    const profileDir = path.join(globalHermesHome, "profiles", "safeagent");
+    fs.mkdirSync(path.join(profileDir, "logs"), { recursive: true });
+    fs.mkdirSync(runtimeHermesHome, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, "config.yaml"), "channels:\n  grix:\n    wsUrl: wss://gateway\n");
+    fs.writeFileSync(path.join(profileDir, ".env"), "GRIX_ENDPOINT=wss://gateway\nGRIX_AGENT_ID=agent\nGRIX_API_KEY=ak_123_SECRET\n");
+    fs.writeFileSync(path.join(profileDir, "logs", "gateway.log"), "2026-05-05 INFO gateway.run: ✓ grix connected\n");
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const stateDir = process.env.FAKE_STATE_DIR;
+const args = process.argv.slice(2);
+fs.writeFileSync(path.join(stateDir, "gateway-hermes-home.txt"), process.env.HERMES_HOME || "");
+const gatewayIndex = args.indexOf("gateway");
+const sub = gatewayIndex >= 0 ? args[gatewayIndex + 1] : "";
+if (sub === "status") {
+  process.stdout.write("running");
+} else {
+  process.stdout.write("ok");
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "start_gateway.js"),
+      "--profile-name", "safeagent",
+      "--hermes-home", runtimeHermesHome,
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FAKE_STATE_DIR: tmp },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(path.join(tmp, "gateway-hermes-home.txt"), "utf8"), globalHermesHome);
+    const output = JSON.parse(result.stdout) as { hermes_home: string; runtime_hermes_home: string };
+    assert.equal(output.hermes_home, globalHermesHome);
+    assert.equal(output.runtime_hermes_home, runtimeHermesHome);
+  });
 });
 
 describe("grix-egg bind_local", () => {
@@ -1070,6 +1201,67 @@ if (args[0] === "profile" && args[1] === "create") {
     assert.equal(result.status, 0, result.stderr);
     const envPath = path.join(hermesHome, "profiles", "wrapperagent", ".env");
     assert.equal(fs.existsSync(envPath), true);
+  });
+
+  it("writes the new profile to the top-level Hermes root even when invoked from another profile home", () => {
+    const tmp = makeTempDir("grix-bind-profile-root-");
+    const globalHermesHome = path.join(tmp, "hermes");
+    const runtimeHermesHome = path.join(globalHermesHome, "profiles", "grix-online");
+    const installDir = path.join(runtimeHermesHome, "skills", "grix-hermes");
+    for (const filePath of [
+      "bin/grix-hermes.js",
+      "lib/manifest.js",
+      "shared/cli/grix-hermes.js",
+      "grix-admin/SKILL.md",
+      "grix-egg/SKILL.md",
+    ]) {
+      const absolute = path.join(installDir, filePath);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "");
+    }
+    const fakeHermes = writeExecutable(path.join(tmp, "fake-hermes.js"), `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const stateDir = process.env.FAKE_STATE_DIR;
+const args = process.argv.slice(2);
+fs.writeFileSync(path.join(stateDir, "hermes-home.txt"), process.env.HERMES_HOME || "");
+if (args[0] === "profile" && args[1] === "create") {
+  fs.mkdirSync(path.join(process.env.HERMES_HOME, "profiles", args[2]), { recursive: true });
+  process.stdout.write("created");
+} else {
+  process.stderr.write("unexpected hermes args: " + args.join(" "));
+  process.exit(9);
+}
+`);
+
+    const result = spawnSync(process.execPath, [
+      path.join(root, "grix-egg", "scripts", "bind_local.js"),
+      "--agent-name", "moonagent",
+      "--agent-id", "agent-moon",
+      "--api-endpoint", "wss://moon",
+      "--api-key", "ak_123_MOONSECRET",
+      "--profile-name", "moonagent",
+      "--hermes", fakeHermes,
+      "--json",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HERMES_HOME: runtimeHermesHome,
+        FAKE_STATE_DIR: tmp,
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(path.join(tmp, "hermes-home.txt"), "utf8"), globalHermesHome);
+    assert.equal(fs.existsSync(path.join(globalHermesHome, "profiles", "moonagent", ".env")), true);
+    assert.equal(
+      fs.existsSync(path.join(runtimeHermesHome, "profiles", "moonagent", ".env")),
+      false,
+    );
+    const output = JSON.parse(result.stdout) as { profile_dir: string; install_dir: string };
+    assert.equal(output.profile_dir, path.join(globalHermesHome, "profiles", "moonagent"));
+    assert.equal(output.install_dir, installDir);
   });
 
   it("writes profile env files privately and masks JSON output", () => {

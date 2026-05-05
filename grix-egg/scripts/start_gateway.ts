@@ -25,6 +25,12 @@ const UNHEALTHY_GW_HINTS = [
   "grix platform disabled",
 ];
 
+const CONNECTED_GW_HINTS = [
+  "[grix] connected to",
+  "✓ grix connected",
+  "✓ grix reconnected successfully",
+];
+
 type StartSubcommand = "start" | "run";
 
 interface Flags {
@@ -62,6 +68,14 @@ function expandHome(value: string): string {
 function resolveHermesHome(explicit: string): string {
   const raw = cleanText(explicit) || cleanText(process.env.HERMES_HOME) || "~/.hermes";
   return path.resolve(expandHome(raw));
+}
+
+function resolveProfileRoot(hermesHome: string): string {
+  let current = path.resolve(hermesHome);
+  while (path.basename(path.dirname(current)) === "profiles") {
+    current = path.dirname(path.dirname(current));
+  }
+  return current;
 }
 
 function resolveProfileDir(hermesHome: string, profileName: string): string {
@@ -165,6 +179,61 @@ function assertGatewayOutputHealthy(outputs: Array<CommandOutput | null>): void 
   }
 }
 
+function readFileIfExists(filePath: string): string {
+  if (!fs.existsSync(filePath)) return "";
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function tailLines(text: string, maxLines: number): string {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  return lines.slice(-maxLines).join("\n");
+}
+
+function lastIndexOfAny(haystack: string, needles: string[]): number {
+  return needles.reduce((latest, needle) => {
+    const index = haystack.lastIndexOf(needle);
+    return index > latest ? index : latest;
+  }, -1);
+}
+
+function inspectGatewayLogs(profileDir: string): { connected: boolean; unhealthyHint: string; tail: string } {
+  const logText = tailLines(readFileIfExists(path.join(profileDir, "logs", "gateway.log")), 120);
+  const errorText = tailLines(readFileIfExists(path.join(profileDir, "logs", "gateway.error.log")), 120);
+  const tail = [logText, errorText].filter(Boolean).join("\n");
+  const normalized = tail.toLowerCase();
+  const lastConnected = lastIndexOfAny(normalized, CONNECTED_GW_HINTS);
+  const lastUnhealthy = lastIndexOfAny(normalized, UNHEALTHY_GW_HINTS);
+  const unhealthyHint = lastUnhealthy > lastConnected
+    ? UNHEALTHY_GW_HINTS.find((candidate) => normalized.lastIndexOf(candidate) === lastUnhealthy) || ""
+    : "";
+  return {
+    connected: lastConnected >= 0 && lastConnected > lastUnhealthy,
+    unhealthyHint,
+    tail,
+  };
+}
+
+function waitForGrixConnected(profileDir: string): void {
+  const deadline = Date.now() + 15000;
+  let lastInspection = inspectGatewayLogs(profileDir);
+  while (Date.now() < deadline) {
+    if (lastInspection.connected) return;
+    if (lastInspection.unhealthyHint) {
+      throw new Error(
+        "Hermes gateway started but did not finish loading the grix platform.\n" +
+          `hint: ${lastInspection.unhealthyHint}\n` +
+          `log_tail:\n${lastInspection.tail}`,
+      );
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+    lastInspection = inspectGatewayLogs(profileDir);
+  }
+  throw new Error(
+    "Hermes gateway started but did not report a grix connected state within 15 seconds.\n" +
+      `log_tail:\n${lastInspection.tail}`,
+  );
+}
+
 function statusIsRunning(result: CommandOutput): boolean {
   if (result.code !== 0) return false;
   const combined = summarizeOutput(result).toLowerCase();
@@ -237,7 +306,8 @@ function main(): number {
   }
 
   try {
-    const hermesHome = resolveHermesHome(flags.hermesHome);
+    const runtimeHermesHome = resolveHermesHome(flags.hermesHome);
+    const hermesHome = resolveProfileRoot(runtimeHermesHome);
     const profileName = cleanText(flags.profileName);
     const profileDir = resolveProfileDir(hermesHome, profileName);
     if (!fs.existsSync(profileDir)) {
@@ -306,11 +376,13 @@ function main(): number {
       statusAfter,
       startAttempt?.result || null,
     ]);
+    waitForGrixConnected(profileDir);
 
     const payload = {
       ok: true as const,
       profile_name: profileName || "default",
       hermes_home: hermesHome,
+      runtime_hermes_home: runtimeHermesHome,
       profile_dir: profileDir,
       already_running: alreadyRunning,
       start_subcommand: flags.startSubcommand,

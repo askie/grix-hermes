@@ -74,6 +74,14 @@ function resolveHermesHome(explicit: string): string {
   return path.resolve(expandHome(raw));
 }
 
+function resolveProfileRoot(hermesHome: string): string {
+  let current = path.resolve(hermesHome);
+  while (path.basename(path.dirname(current)) === "profiles") {
+    current = path.dirname(path.dirname(current));
+  }
+  return current;
+}
+
 function resolveDefaultInstallDir(hermesHome: string): string {
   return path.join(hermesHome, "skills", "grix-hermes");
 }
@@ -417,13 +425,14 @@ interface Plan {
 }
 
 function buildPlan(flags: Flags): Plan {
-  const hermesHome = resolveHermesHome(flags.hermesHome);
+  const runtimeHermesHome = resolveHermesHome(flags.hermesHome);
+  const profileRoot = resolveProfileRoot(runtimeHermesHome);
   const profileName = cleanText(flags.profileName) || flags.agentName;
-  const profileDir = resolveProfileDir(hermesHome, profileName);
+  const profileDir = resolveProfileDir(profileRoot, profileName);
   const profileExists = fs.existsSync(profileDir);
   const isMain = parseOptionalBool(flags.isMain);
   const managementPolicy = resolveManagementPolicy(profileExists, isMain);
-  const installDir = resolveInstallDir(hermesHome, flags.installDir);
+  const installDir = resolveInstallDir(runtimeHermesHome, flags.installDir);
 
   if (profileExists && flags.profileMode === "create") {
     throw new Error(`Hermes profile already exists: ${profileName}`);
@@ -650,10 +659,12 @@ function main(): number {
       );
     }
 
+    const runtimeHermesHome = resolveHermesHome(flags.hermesHome);
+    const profileRoot = resolveProfileRoot(runtimeHermesHome);
     const plan = buildPlan(flags);
     const commandEnv: NodeJS.ProcessEnv = {
       ...process.env,
-      HERMES_HOME: resolveHermesHome(flags.hermesHome),
+      HERMES_HOME: profileRoot,
     };
     let createdProfile = false;
     let envResult: EnvResult | null = null;
@@ -689,7 +700,7 @@ function main(): number {
           : inheritSource;
         const inheritSourceLabel = inheritProfileName || "global";
         const inheritedConfigKeys = inheritLlmConfig(
-          commandEnv.HERMES_HOME || "",
+          runtimeHermesHome,
           plan.config_path,
           inheritProfileName,
         );
@@ -702,7 +713,7 @@ function main(): number {
         }
 
         const inheritedKeys = inheritLlmKeys(
-          commandEnv.HERMES_HOME || "",
+          runtimeHermesHome,
           plan.env_path,
           inheritProfileName,
         );
