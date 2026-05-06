@@ -1,33 +1,33 @@
 ---
 name: grix-hermes
-description: Hermes 技能包安装入口。提供 grix-hermes bundle 安装、Hermes skills 目录接入说明、8 个技能目录启用、每日更新 cron 配置和安装后验证。
+description: Hermes skill bundle installer. Installs the grix-hermes bundle, configures Hermes skills directory, enables 8 skill directories, sets up a daily update cron job, and provides post-install verification.
 ---
 
 # Grix Hermes
 
-`grix-hermes` 是发布到 npm 的 Hermes 技能包。安装后，Hermes 可以加载 8 个 Grix 技能和共享运行时。
+`grix-hermes` is a Hermes skill bundle published to npm. After installation, Hermes can load 8 Grix skills and their shared runtime.
 
-## 能力
+## Capabilities
 
-- 安装 `@dhf-hermes/grix` 到 `~/.hermes/skills/grix-hermes`
-- 提供 Hermes `skills.external_dirs` 接入路径
-- 提供 8 个 Grix 技能目录
-- 创建每日更新 cron job
-- 输出技能清单和 manifest 供安装后验证
+- Installs `@dhf-hermes/grix` to `~/.hermes/skills/grix-hermes`
+- Provides the Hermes `skills.external_dirs` path
+- Provides 8 Grix skill directories
+- Creates a daily update cron job
+- Outputs skill list and manifest for post-install verification
 
-## 快速安装
+## Quick Install
 
 ```bash
 npx @dhf-hermes/grix install
 ```
 
-安装动作：
+Install actions:
 
-1. 通过 npm 获取最新版 `@dhf-hermes/grix`
-2. 安装完整 bundle 到 `~/.hermes/skills/grix-hermes`
-3. 创建每日更新 cron job：`grix-hermes-daily-update`，每天 06:00
+1. Fetches the latest `@dhf-hermes/grix` via npm
+2. Installs the full bundle to `~/.hermes/skills/grix-hermes`
+3. Creates a daily update cron job: `grix-hermes-daily-update`, runs at 06:00
 
-安装后验证：
+Post-install verification:
 
 ```bash
 node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js list
@@ -35,62 +35,62 @@ node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js manifest
 hermes skills list
 ```
 
-## 手工安装
+## Manual Install
 
-手工安装适合需要显式控制安装目录和 Hermes profile 的环境。
+Manual install is for environments that need explicit control over the install directory and Hermes profile.
 
-### 1. 确定 Hermes 目录
+### 1. Determine Hermes directory
 
-默认 `HERMES_HOME`：
+Default `HERMES_HOME`:
 
 ```text
 ~/.hermes
 ```
 
-默认安装目录：
+Default install directory:
 
 ```text
 ~/.hermes/skills/grix-hermes
 ```
 
-使用自定义 `HERMES_HOME` 时，将下面路径中的 `~/.hermes` 替换为对应目录。
+When using a custom `HERMES_HOME`, replace `~/.hermes` in the paths below with your directory.
 
-### 2. 获取 npm 包
+### 2. Fetch the npm package
 
 ```bash
 tmp="$(mktemp -d)"
 npm install --prefix "$tmp/prefix" @dhf-hermes/grix
 ```
 
-包目录：
+Package directory:
 
 ```text
 $tmp/prefix/node_modules/@dhf-hermes/grix
 ```
 
-### 3. 安装完整 bundle
+### 3. Install the full bundle
 
 ```bash
 install_dir="${HERMES_HOME:-$HOME/.hermes}/skills/grix-hermes"
 node "$tmp/prefix/node_modules/@dhf-hermes/grix/bin/grix-hermes.js" install --dest "$install_dir" --force --skip-cron
 ```
 
-完整 bundle 内容包含：
+The full bundle contains:
 
 - `bin`
 - `lib`
 - `shared`
-- 8 个技能目录
-- 包内自带的 `node_modules`
+- 8 skill directories
+- Bundled `node_modules`
 
-### 4. 接入 Hermes 配置
+### 4. Configure Hermes
 
-编辑目标 Hermes profile 配置文件：
+Edit the target Hermes profile config file:
 
-- 默认 profile：`~/.hermes/config.yaml`
-- 命名 profile：`~/.hermes/profiles/<PROFILE_NAME>/config.yaml`
+- Default profile: `~/.hermes/config.yaml`
+- Named profile: `~/.hermes/profiles/<PROFILE_NAME>/config.yaml`
 
-配置 `skills.external_dirs`：
+Configure `skills.external_dirs`:
 
 ```yaml
 skills:
@@ -98,7 +98,7 @@ skills:
     - ~/.hermes/skills/grix-hermes
 ```
 
-目标 profile 可见技能：
+Visible skills for the target profile:
 
 - `grix-admin`
 - `grix-egg`
@@ -109,32 +109,32 @@ skills:
 - `message-send`
 - `message-unsend`
 
-### 5. 配置每日更新
+### 5. Configure daily updates
 
 ```bash
 hermes cron add --name grix-hermes-daily-update --skill grix-update "0 6 * * *" 'Use the grix-update skill with {"install_dir":"~/.hermes/skills/grix-hermes"}'
 ```
 
-### 6. 清理临时目录
+### 6. Clean up temp directory
 
 ```bash
 rm -rf "$tmp"
 ```
 
-## 技能清单
+## Skill List
 
-| 技能 | 能力 |
+| Skill | Capability |
 | --- | --- |
-| `grix-admin` | 远程 Grix Agent 管理：API agent、分类、分配、状态和 API key rotation |
-| `grix-egg` | Hermes Agent 孵化编排：空蛋创建、profile 绑定、gateway 启动和验收 |
-| `grix-group` | Grix 群组生命周期管理：创建、查询、成员和角色 |
-| `grix-query` | 联系人、会话和消息查询 |
-| `grix-register` | HTTP 注册、登录和 API agent 创建 |
-| `grix-update` | 技能包更新并重新安装到 Hermes skills 目录 |
-| `message-send` | 消息发送和 Grix deep-link 卡片生成 |
-| `message-unsend` | 消息撤回 |
+| `grix-admin` | Remote Grix Agent management: API agents, categories, assignment, status, and API key rotation |
+| `grix-egg` | Hermes Agent incubation orchestration: empty agent creation, profile binding, gateway startup, and acceptance |
+| `grix-group` | Grix group lifecycle management: create, query, members, and roles |
+| `grix-query` | Contact, session, and message lookup |
+| `grix-register` | HTTP registration, login, and API agent creation |
+| `grix-update` | Skill bundle update and reinstall to Hermes skills directory |
+| `message-send` | Message sending and Grix deep-link card generation |
+| `message-unsend` | Message retraction |
 
-## 安装验证
+## Installation Verification
 
 ```bash
 node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js list
@@ -142,8 +142,8 @@ node ~/.hermes/skills/grix-hermes/bin/grix-hermes.js manifest
 hermes skills list
 ```
 
-验收标准：
+Acceptance criteria:
 
-- `list` 列出 8 个技能
-- `manifest` 输出 `grix-hermes` 和 8 个技能条目
-- `hermes skills list` 扫描到 `~/.hermes/skills/grix-hermes`
+- `list` shows 8 skills
+- `manifest` outputs `grix-hermes` and 8 skill entries
+- `hermes skills list` scans `~/.hermes/skills/grix-hermes`
