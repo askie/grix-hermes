@@ -14,6 +14,8 @@
     "grix-admin/SKILL.md",
     "grix-admin/agents/**",
     "grix-admin/references/**",
+    "grix-dispatch/**/*.js",
+    "grix-dispatch/SKILL.md",
     "grix-egg/**/*.js",
     "grix-egg/SKILL.md",
     "grix-egg/agents/**",
