@@ -26,6 +26,7 @@
     "lib/**/*.ts",
     "shared/**/*.ts",
     "grix-admin/scripts/**/*.ts",
+    "grix-dispatch/scripts/**/*.ts",
     "grix-egg/scripts/**/*.ts",
     "grix-group/scripts/**/*.ts",
     "grix-query/scripts/**/*.ts",

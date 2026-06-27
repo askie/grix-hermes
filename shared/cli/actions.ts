@@ -113,6 +113,33 @@ export interface CommonActionOptions {
   sortOrder?: string | number;
   categorySortOrder?: string | number;
   envFile?: string;
+  cwd?: string;
+  task?: string;
+  title?: string;
+}
+
+export async function runDispatch(
+  client: AibotWsClient,
+  options: CommonActionOptions,
+): Promise<Record<string, unknown>> {
+  const agentId = cleanText(options.agentId);
+  if (!agentId) throw new Error("grix-dispatch requires --agent-id");
+  const cwd = cleanText(options.cwd);
+  if (!cwd) throw new Error("grix-dispatch requires --cwd");
+  const task = cleanText(options.task);
+  if (!task) throw new Error("grix-dispatch requires --task");
+  const params: Record<string, unknown> = { agent_id: agentId, cwd, task };
+  const title = cleanText(options.title);
+  if (title) params.title = title;
+  return {
+    ok: true,
+    accountId: options.accountId,
+    action: "dispatch_agent",
+    agentId,
+    cwd,
+    // 目标 agent 为 claude/codex 时后端要绑定工作目录，可能耗时，放宽超时。
+    data: await client.agentInvoke("dispatch_agent", params, { timeoutMs: 30000 }),
+  };
 }
 
 export async function runQuery(

@@ -2,6 +2,7 @@ import { AibotWsClient } from "./aibot-client.js";
 import { resolveRuntimeConfig } from "./config.js";
 import {
   runAdmin,
+  runDispatch,
   runGroup,
   rotateAgentKey,
   runQuery,
@@ -10,7 +11,7 @@ import {
   type CommonActionOptions,
 } from "./actions.js";
 
-type CliKind = "admin" | "group" | "key_rotate" | "query" | "send" | "unsend";
+type CliKind = "admin" | "dispatch" | "group" | "key_rotate" | "query" | "send" | "unsend";
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -49,6 +50,7 @@ async function dispatch(kind: CliKind, options: CommonActionOptions): Promise<Re
   await client.connect();
   try {
     if (kind === "admin") return await runAdmin(client, options);
+    if (kind === "dispatch") return await runDispatch(client, options);
     if (kind === "group") return await runGroup(client, options);
     if (kind === "key_rotate") return await rotateAgentKey(client, options);
     if (kind === "query") return await runQuery(client, options);

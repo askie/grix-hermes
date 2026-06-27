@@ -16,6 +16,11 @@ export const SKILLS: SkillDefinition[] = [
       "Low-level WS admin for remote Grix agents, API keys, categories, assignment, and status.",
   },
   {
+    name: "grix-dispatch",
+    description:
+      "Dispatch a task to one of the owner's agents in a working directory over the bundled websocket CLI; each dispatch opens a fresh session.",
+  },
+  {
     name: "grix-egg",
     description:
       "Hermes agent incubation orchestrator for empty-agent bootstrap, binding, gateway, and acceptance.",
