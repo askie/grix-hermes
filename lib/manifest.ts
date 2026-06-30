@@ -33,7 +33,7 @@ export const SKILLS: SkillDefinition[] = [
   {
     name: "grix-query",
     description:
-      "Grix contact, session, and message lookup over the bundled websocket CLI.",
+      "Grix contact, session, message, and egg-marketplace lookup over the bundled websocket CLI.",
   },
   {
     name: "grix-register",
