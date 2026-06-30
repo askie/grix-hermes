@@ -158,6 +158,7 @@ export async function runQuery(
     message_search: "message_search",
     egg_search: "egg_search",
     egg_get: "egg_get",
+    search_favorite_sessions: "search_favorite_sessions",
   };
   const mapped = map[action];
   if (!mapped) throw new Error(`Unsupported grix query action: ${action}`);
