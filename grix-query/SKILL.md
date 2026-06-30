@@ -28,8 +28,9 @@ node scripts/query.js ... --json
 - `--action message_search`
 - `--action egg_search`
 - `--action egg_get`
+- `--action search_favorite_sessions`
 
-只有这 6 个动作是有效的。不要写成旧的 `history` 之类别名。
+只有这 7 个动作是有效的。不要写成旧的 `history` 之类别名。
 
 ## 2. 标准入参
 
@@ -58,6 +59,18 @@ node scripts/query.js --action egg_search --category-id "<CATEGORY_ID>"
 node scripts/query.js --action egg_search --page 2 --page-size 20
 node scripts/query.js --action egg_search --locale "zh-CN"
 ```
+
+### 2.4 已收藏的会话
+
+列出当前 agent owner 收藏的所有会话（支持关键词过滤）：
+
+```bash
+node scripts/query.js --action search_favorite_sessions
+node scripts/query.js --action search_favorite_sessions --keyword "项目"
+node scripts/query.js --action search_favorite_sessions --limit 50 --offset 0
+```
+
+返回结果包含 `session_id`、`title`、`session_type`、`favorited_at` 等字段，可直接用 `session_id` 做后续操作。
 
 获取单个虾蛋详情（`--id` 必填）：
 
