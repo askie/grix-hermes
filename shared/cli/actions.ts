@@ -116,6 +116,10 @@ export interface CommonActionOptions {
   cwd?: string;
   task?: string;
   title?: string;
+  locale?: string;
+  page?: string | number;
+  pageSize?: string | number;
+  version?: string | number;
 }
 
 export async function runDispatch(
@@ -152,6 +156,8 @@ export async function runQuery(
     session_search: "session_search",
     message_history: "message_history",
     message_search: "message_search",
+    egg_search: "egg_search",
+    egg_get: "egg_get",
   };
   const mapped = map[action];
   if (!mapped) throw new Error(`Unsupported grix query action: ${action}`);
@@ -160,10 +166,18 @@ export async function runQuery(
   if (cleanText(options.keyword)) params.keyword = cleanText(options.keyword);
   if (cleanText(options.sessionId)) params.session_id = cleanText(options.sessionId);
   if (cleanText(options.beforeId)) params.before_id = cleanText(options.beforeId);
+  if (cleanText(options.categoryId)) params.category_id = cleanText(options.categoryId);
+  if (cleanText(options.locale)) params.locale = cleanText(options.locale);
   const limit = cleanInt(options.limit);
   if (limit !== undefined) params.limit = limit;
   const offset = cleanInt(options.offset);
   if (offset !== undefined) params.offset = offset;
+  const page = cleanInt(options.page);
+  if (page !== undefined) params.page = page;
+  const pageSize = cleanInt(options.pageSize);
+  if (pageSize !== undefined) params.page_size = pageSize;
+  const version = cleanInt(options.version);
+  if (version !== undefined) params.version = version;
   return {
     ok: true,
     accountId: options.accountId,

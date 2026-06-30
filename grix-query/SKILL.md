@@ -6,8 +6,8 @@ author: askie
 license: MIT
 metadata:
   hermes:
-    tags: [grix, query, search, contacts, sessions, messages]
-    related_skills: [grix-group, message-send, message-unsend]
+    tags: [grix, query, search, contacts, sessions, messages, egg, marketplace]
+    related_skills: [grix-group, grix-egg, message-send, message-unsend]
 ---
 
 # Grix Query
@@ -26,8 +26,10 @@ node scripts/query.js ... --json
 - `--action session_search`
 - `--action message_history`
 - `--action message_search`
+- `--action egg_search`
+- `--action egg_get`
 
-只有这 4 个动作是有效的。不要写成旧的 `history` 之类别名。
+只有这 6 个动作是有效的。不要写成旧的 `history` 之类别名。
 
 ## 2. 标准入参
 
@@ -45,12 +47,37 @@ node scripts/query.js --action message_history --session-id "<SESSION_ID>" --lim
 node scripts/query.js --action message_search --session-id "<SESSION_ID>" --keyword "身份" --limit 20
 ```
 
+### 2.3 虾蛋市场
+
+搜索虾蛋列表：
+
+```bash
+node scripts/query.js --action egg_search
+node scripts/query.js --action egg_search --keyword "代码助手"
+node scripts/query.js --action egg_search --category-id "<CATEGORY_ID>"
+node scripts/query.js --action egg_search --page 2 --page-size 20
+node scripts/query.js --action egg_search --locale "zh-CN"
+```
+
+获取单个虾蛋详情（`--id` 必填）：
+
+```bash
+node scripts/query.js --action egg_get --id "<EGG_ID>"
+node scripts/query.js --action egg_get --id "<EGG_ID>" --version 2
+node scripts/query.js --action egg_get --id "<EGG_ID>" --locale "zh-CN"
+```
+
 可选公共参数：
 
-- `--id`
+- `--id`（`egg_get` 必填）
 - `--keyword`
 - `--session-id`
 - `--before-id`
+- `--category-id`
+- `--locale`
+- `--page`（默认 1）
+- `--page-size`（默认 20）
+- `--version`（默认取最新版本）
 - `--limit`
 - `--offset`
 
